@@ -8,6 +8,7 @@ async function connectGoogle(page: import('@playwright/test').Page) {
   await page.getByTestId('sync-connect').click();
   await expect(page.getByTestId('quick-add-input')).toBeVisible();
   await expect(page.getByTestId('sync-status')).toHaveAttribute('data-status', /idle|syncing/);
+  await page.evaluate(() => { window.location.hash = '#/all'; }); // OAuth returns to the default view
 }
 
 test.describe('Google Calendar two-way sync (mock)', () => {
