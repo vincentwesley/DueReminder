@@ -290,7 +290,8 @@ kbd { font: 600 0.85rem ui-monospace, monospace; background: var(--surface-2); b
 /* Desktop */
 @media (min-width: 960px) {
   .sidebar { display: block; }
-  .bottom-nav, .fab, .brand.mobile-only { display: none; }
+  .bottom-nav, .brand.mobile-only { display: none; }
+  .fab { bottom: 24px; right: 28px; }
   .topbar { padding: 12px 28px; }
   .main { padding: 24px 28px 64px; }
   .scrim:has(.dialog-side) { justify-content: flex-end; align-items: stretch; }

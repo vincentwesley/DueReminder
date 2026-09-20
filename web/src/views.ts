@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Reminder } from '@shared/types';
 import { dayKey, dayLabel, effectiveDue, endOfDay, isOverdue, startOfDay } from './dates';
 
@@ -26,7 +26,8 @@ export function useRoute(): Route {
     window.addEventListener('hashchange', on);
     return () => window.removeEventListener('hashchange', on);
   }, []);
-  return parseHash(hash);
+  // Stable identity per hash so effects keyed on the route only fire on real navigation.
+  return useMemo(() => parseHash(hash), [hash]);
 }
 
 export interface Filters { priority: 0 | 1 | 2 | 3 | -1; sort: 'due' | 'priority' | 'created'; hasDate: boolean }

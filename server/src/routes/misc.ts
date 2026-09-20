@@ -25,6 +25,27 @@ export function miscRoutes(app: FastifyInstance, ctx: Ctx) {
     return { ...user, demo: true };
   });
 
+  /** Demo mode only: wipe the signed-in demo user's data (including any Google link) and reseed. Used by E2E tests and the "reset demo" affordance. */
+  app.post('/demo/reset', async (req) => {
+    if (!ctx.config.demoMode) throw notFound('Demo mode is disabled');
+    const id = uid(req);
+    if (!req.user!.demo) throw notFound('Only the demo user can be reset');
+    const tx = ctx.db.transaction(() => {
+      for (const t of ['outbox', 'google_accounts']) {
+        try { ctx.db.prepare(`DELETE FROM ${t} WHERE user_id = ?`).run(id); } catch { /* table absent when Google is not loaded */ }
+      }
+      ctx.db.prepare('DELETE FROM reminder_tags WHERE reminder_id IN (SELECT id FROM reminders WHERE user_id = ?)').run(id);
+      ctx.db.prepare('DELETE FROM reminders WHERE user_id = ?').run(id);
+      ctx.db.prepare('DELETE FROM tags WHERE user_id = ?').run(id);
+      ctx.db.prepare('DELETE FROM lists WHERE user_id = ?').run(id);
+      ctx.db.prepare('DELETE FROM idempotency_keys WHERE user_id = ?').run(id);
+    });
+    tx();
+    defaultListId(ctx.db, id);
+    await seedDemoData(ctx, id);
+    return req.user;
+  });
+
   app.post('/auth/logout', async (req, reply) => {
     endSession(ctx.db, req, reply);
     return reply.code(204).send();
