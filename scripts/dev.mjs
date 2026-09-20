@@ -14,6 +14,9 @@ env.API_PORT ??= '4000';
 env.WEB_PORT ??= '5173';
 env.MOCK_GOOGLE_PORT ??= '4010';
 env.DEMO_MODE ??= '1';
+// Keep the OAuth round trip on the Vite origin (proxied /api) so the user lands back on the dev UI.
+env.OAUTH_REDIRECT_URI ??= `http://localhost:${env.WEB_PORT}/api/auth/callback`;
+env.POST_LOGIN_REDIRECT ??= `http://localhost:${env.WEB_PORT}/`;
 
 const tsx = join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const vite = join(root, 'node_modules', 'vite', 'bin', 'vite.js');
@@ -36,7 +39,7 @@ function run(name, color, args, extraEnv = {}) {
   procs.push(child);
 }
 
-const mockEntry = firstExisting('mock-google/index.ts', 'mock-google/server.ts', 'mock-google/main.ts', 'mock-google/src/index.ts', 'mock-google/src/server.ts', 'mock-google/src/main.ts');
+const mockEntry = firstExisting('mock-google/server.ts', 'mock-google/index.ts', 'mock-google/main.ts', 'mock-google/src/index.ts', 'mock-google/src/server.ts', 'mock-google/src/main.ts');
 if (mockEntry) run('mock-google', 35, [tsx, 'watch', mockEntry], { PORT: env.MOCK_GOOGLE_PORT });
 else console.log('[dev] mock-google/ entry not found, skipping');
 

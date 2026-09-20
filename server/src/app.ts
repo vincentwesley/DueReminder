@@ -13,7 +13,7 @@ import { loadGoogle } from './services/hooks.js';
 import type { Ctx } from './services/reminders.js';
 import { userFromRequest } from './session.js';
 
-const PUBLIC = new Set(['/api/health', '/api/demo/login', '/api/auth/google/start', '/api/auth/callback']);
+const PUBLIC = new Set(['/api/health', '/api/demo/login', '/api/auth/login', '/api/auth/google/start', '/api/auth/callback', '/api/auth/me']);
 const IDEM_TTL_MS = 24 * 3600_000;
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml',
