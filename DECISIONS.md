@@ -20,3 +20,6 @@
 
 ## Environment note
 The user's global ~/.npmrc sets a dead proxy (proxy.example.com:8080), which breaks npm. A local, gitignored project `.npmrc` overrides it (`proxy=null`, `https-proxy=null`). Global config was not modified.
+
+## 2026-09-20 - Vitest 3.2 -> 4.1.11
+`npm audit` flagged vitest/@vitest/mocker (path traversal, GHSA-82fw-gwwq-j7x9; dev-only). Upgraded to vitest 4.1.11 (engines ^20 || ^22 || >=24, fine on Node 20.17; 5.x needs Node 22 so not used). All tests green, audit reports 0 vulnerabilities.

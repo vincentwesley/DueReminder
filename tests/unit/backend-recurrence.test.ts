@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isValidRrule, nextOccurrence } from '../../server/src/services/recurrence';
 import { buildApp } from '../../server/src/app';
+afterEach(() => { vi.useRealTimers(); });
 
 describe('nextOccurrence', () => {
   it('advances a daily rule', () => {
@@ -63,6 +64,8 @@ describe('API (inject)', () => {
   });
 
   it('completing an overdue recurring reminder lands after now at the same wall time', async () => {
+    // Freeze only Date so the server's "now" equals the test's "now" (no wall-clock drift/boundary races).
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-03-10T12:00:00.000Z') });
     const app = await buildApp({ dbPath: ':memory:', demoMode: true, logger: false });
     const login = await app.inject({ method: 'POST', url: '/api/demo/login', headers: H });
     const headers = { ...H, cookie: `rs_session=${login.cookies[0]!.value}` };
