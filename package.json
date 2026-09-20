@@ -5,7 +5,7 @@
   "type": "module",
   "engines": { "node": ">=20.17" },
   "scripts": {
-    "dev": "echo \"dev placeholder: will run server + mock-google + web via concurrently (see PLAN.md section 12)\"",
+    "dev": "node scripts/dev.mjs",
     "build": "echo \"placeholder\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
