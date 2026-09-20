@@ -71,7 +71,12 @@ async function refresh(ctx: GoogleCtx, userId: string): Promise<string> {
     markReauth(ctx, userId, 'No refresh token stored; reconnect Google');
     throw new ReauthRequiredError();
   }
-  const rt = decryptToken(acct.refresh_token_enc, ctx.config.sessionSecret);
+  let rt: string;
+  try { rt = decryptToken(acct.refresh_token_enc, ctx.config.sessionSecret); }
+  catch {
+    markReauth(ctx, userId, 'Stored Google tokens cannot be decrypted (SESSION_SECRET changed); reconnect required');
+    throw new ReauthRequiredError();
+  }
   const res = await postForm(ctx, ctx.config.tokenUrl, {
     grant_type: 'refresh_token',
     refresh_token: rt,
@@ -97,7 +102,7 @@ export function getAccessToken(ctx: GoogleCtx, userId: string, opts: { force?: b
   if (!acct) return Promise.reject(new ReauthRequiredError('No Google account linked'));
   if (acct.status === 'reauth_required') return Promise.reject(new ReauthRequiredError());
   if (!opts.force && acct.access_token_enc && acct.expires_at - 60_000 > Date.now()) {
-    return Promise.resolve(decryptToken(acct.access_token_enc, ctx.config.sessionSecret));
+    try { return Promise.resolve(decryptToken(acct.access_token_enc, ctx.config.sessionSecret)); } catch { /* fall through to refresh, which reports reauth */ }
   }
   const key = userId;
   let p = inflight.get(key);

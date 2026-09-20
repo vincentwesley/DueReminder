@@ -38,10 +38,8 @@ export async function verifyIdToken(ctx: GoogleCtx, idToken: string, state: stri
       .update(`${parts[0]}.${parts[1]}`)
       .verify(createPublicKey({ key: key as never, format: 'jwk' }), Buffer.from(parts[2]!, 'base64url'));
     if (!ok) throw new Error('id_token signature invalid');
-    if (claims.nonce !== nonceFor(state)) throw new Error('id_token nonce mismatch');
-  } else if (claims.nonce !== undefined && claims.nonce !== nonceFor(state)) {
-    throw new Error('id_token nonce mismatch');
   }
+  if (claims.nonce !== nonceFor(state)) throw new Error('id_token nonce mismatch');
   if (!['https://accounts.google.com', 'accounts.google.com', c.authBase].includes(claims.iss)) throw new Error('id_token issuer invalid');
   if (claims.aud !== c.clientId) throw new Error('id_token audience mismatch');
   if (typeof claims.exp !== 'number' || claims.exp * 1000 < Date.now()) throw new Error('id_token expired');

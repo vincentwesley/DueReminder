@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3';
+import { isStrict, sessionSecretProblem } from '../config.js';
 
 export const SCOPES = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/calendar.events'];
 export const SESSION_COOKIE = 'rs_session';
@@ -54,9 +55,20 @@ export function resolveGoogleConfig(partial: Partial<GoogleConfig> | Record<stri
   if (demoMode && realGoogle) {
     throw new Error('DEMO_MODE=1 must not point GOOGLE_AUTH_BASE at real Google. Use the mock or set DEMO_MODE=0.');
   }
+  const nodeEnv = (raw.nodeEnv as string | undefined) ?? env.NODE_ENV ?? 'development';
+  if (!demoMode && !realGoogle) {
+    throw new Error('DEMO_MODE=0 requires GOOGLE_AUTH_BASE=https://accounts.google.com; a non-Google auth base is only allowed in demo mode against the local mock.');
+  }
   const sessionSecret = p.sessionSecret ?? env.SESSION_SECRET ?? '';
-  if (!sessionSecret || sessionSecret.length < 16) {
-    throw new Error('SESSION_SECRET must be set (16+ chars, 32+ recommended) - it derives the token encryption key.');
+  const problem = sessionSecretProblem(sessionSecret);
+  if (problem && (isStrict({ nodeEnv, demoMode }) || sessionSecret.length < 16)) {
+    throw new Error(`SESSION_SECRET ${problem} (32+ random characters required) - it derives the token encryption key.`);
+  }
+  // Unsigned id_tokens are accepted only from the local mock in demo mode; everything else is verified against JWKS.
+  const localMock = demoMode && /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(authBase);
+  const verifyIdTokenSignature = p.verifyIdTokenSignature ?? !localMock;
+  if (!verifyIdTokenSignature && !localMock) {
+    throw new Error('id_token signature verification can only be disabled for the local mock in demo mode.');
   }
   return {
     clientId: p.clientId ?? env.GOOGLE_CLIENT_ID ?? '',
@@ -72,7 +84,7 @@ export function resolveGoogleConfig(partial: Partial<GoogleConfig> | Record<stri
     secureCookies: p.secureCookies ?? env.NODE_ENV === 'production',
     pollMs: p.pollMs ?? 60_000,
     debounceMs: p.debounceMs ?? 2_000,
-    verifyIdTokenSignature: p.verifyIdTokenSignature ?? (!demoMode && realGoogle),
+    verifyIdTokenSignature,
     requestTimeoutMs: p.requestTimeoutMs ?? 15_000,
     onUserCreated: p.onUserCreated,
     fetch: p.fetch,

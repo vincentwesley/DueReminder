@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Database } from 'better-sqlite3';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { authorizeUrl, OAUTH_COOKIE, SCOPES, userinfoUrl, type GoogleCtx } from './config';
+import { authorizeUrl, OAUTH_COOKIE, SCOPES, SESSION_COOKIE, userinfoUrl, type GoogleCtx } from './config';
 import { nonceFor, verifyIdToken, type IdClaims } from './idtoken';
 import { codeChallengeS256, generateCodeVerifier, generateState } from './pkce';
 import { clearCookie, createSession, parseCookies, sessionUserId, setCookie } from './session';
@@ -52,8 +52,9 @@ function upsertUser(ctx: GoogleCtx, claims: IdClaims, linkUserId: string | null)
   if (!id) {
     id = (db.prepare('SELECT id FROM users WHERE google_sub = ?').get(claims.sub) as { id: string } | undefined)?.id;
   }
-  if (!id && claims.email) {
-    id = (db.prepare('SELECT id FROM users WHERE email = ?').get(claims.email) as { id: string } | undefined)?.id;
+  if (!id && claims.email && claims.email_verified === true) {
+    // Link by email only for a verified address on an account that is not already bound to another Google identity.
+    id = (db.prepare('SELECT id FROM users WHERE email = ? AND (google_sub IS NULL OR google_sub = ?)').get(claims.email, claims.sub) as { id: string } | undefined)?.id;
   }
   if (id) {
     db.prepare('UPDATE users SET google_sub = COALESCE(google_sub, ?), name = COALESCE(NULLIF(name, \'\'), ?), picture_url = COALESCE(picture_url, ?) WHERE id = ?')
@@ -137,17 +138,27 @@ export async function handleCallback(ctx: GoogleCtx, req: FastifyRequest, reply:
   }
   if (!claims.email) {
     const ui = await doFetch(ctx, userinfoUrl(c), { headers: { authorization: `Bearer ${tok.access_token}` } }).catch(() => null);
-    if (ui?.ok) { const j = (await ui.json()) as { email?: string; name?: string; picture?: string }; claims = { ...claims, ...j }; }
+    if (ui?.ok) { const j = (await ui.json()) as { email?: string; email_verified?: boolean; name?: string; picture?: string }; claims = { ...claims, ...j }; }
   }
   if (!claims.email) { reply.redirect(`${c.postLoginRedirect}?auth_error=no_email`); return null; }
+  if (claims.email_verified !== true) { reply.redirect(`${c.postLoginRedirect}?auth_error=email_unverified`); return null; }
 
-  const userId = db.transaction(() => {
-    const id = upsertUser(ctx, claims, row.user_id);
-    saveAccount(ctx, id, claims.sub, claims.email!, tok);
-    return id;
-  })();
+  let userId: string;
+  try {
+    userId = db.transaction(() => {
+      const id = upsertUser(ctx, claims, row.user_id);
+      saveAccount(ctx, id, claims.sub, claims.email!, tok);
+      return id;
+    })();
+  } catch (e) {
+    if ((e as { code?: string }).code?.startsWith('SQLITE_CONSTRAINT')) { reply.redirect(`${c.postLoginRedirect}?auth_error=account_conflict`); return null; }
+    throw e;
+  }
 
-  if (sessionUserId(db, req) !== userId) createSession(db, c, reply, userId);
+  // Rotate on every login so a session id planted before authentication never becomes authenticated.
+  const oldSid = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+  if (oldSid) db.prepare('DELETE FROM sessions WHERE id = ?').run(oldSid);
+  createSession(db, c, reply, userId);
   reply.redirect(c.postLoginRedirect);
   return userId;
 }
