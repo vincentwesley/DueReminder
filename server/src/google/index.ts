@@ -4,8 +4,10 @@ import { resolveGoogleConfig, type GoogleConfig, type GoogleCtx } from './config
 import { apiError, handleCallback, saveAccount, startLogin } from './oauth';
 import { setSyncTrigger } from './outbox';
 import { migrate } from './schema';
-import { clearCookie, loadUser, parseCookies, sessionUserId } from './session';
-import { SESSION_COOKIE } from './config';
+import { SESSION_COOKIE, sessionIdFromRequest } from '../http/auth.js';
+import { CSRF_MESSAGE, failsCsrf } from '../http/csrf.js';
+import { getUserById } from '../session.js';
+import { clearCookie, sessionUserId } from './session';
 import { changeCalendar, disconnectAccount, getSyncState, runSync, settleSyncs } from './sync';
 
 export { enqueueSync } from './outbox';
@@ -62,9 +64,8 @@ export async function registerGoogle(app: FastifyInstance, deps: GoogleDeps): Pr
     if (app.hasRoute({ method, url: app.prefix + rel })) return; // another package already owns it
     app.route({ method, url: rel, handler: handler as never });
   };
-  const csrfOk = (req: FastifyRequest) => (req.headers['x-requested-with'] ?? '') === 'fetch';
   const guarded = (req: FastifyRequest, reply: FastifyReply): string | null => {
-    if (req.method !== 'GET' && !csrfOk(req)) { apiError(reply, 400, 'bad_request', 'Missing X-Requested-With: fetch header'); return null; }
+    if (failsCsrf(req)) { apiError(reply, 400, 'bad_request', CSRF_MESSAGE); return null; }
     const uid = sessionUserId(ctx.db, req);
     if (!uid) { apiError(reply, 401, 'unauthorized', 'Not signed in'); return null; }
     return uid;
@@ -79,15 +80,15 @@ export async function registerGoogle(app: FastifyInstance, deps: GoogleDeps): Pr
     return reply;
   });
   route('POST', '/api/auth/logout', (req, reply) => {
-    if (!csrfOk(req)) return apiError(reply, 400, 'bad_request', 'Missing X-Requested-With: fetch header');
-    const sid = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+    if (failsCsrf(req)) return apiError(reply, 400, 'bad_request', CSRF_MESSAGE);
+    const sid = sessionIdFromRequest(req);
     if (sid) ctx.db.prepare('DELETE FROM sessions WHERE id = ?').run(sid);
     clearCookie(reply, config, SESSION_COOKIE);
     return reply.code(204).send();
   });
   route('GET', '/api/auth/me', (req, reply) => {
     const uid = sessionUserId(ctx.db, req);
-    const user = uid ? loadUser(ctx.db, uid) : null;
+    const user = uid ? getUserById(ctx.db, uid) : null;
     return user ?? apiError(reply, 401, 'unauthorized', 'Not signed in');
   });
 

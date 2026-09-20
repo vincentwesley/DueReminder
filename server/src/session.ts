@@ -3,10 +3,9 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { User } from '../../shared/types.js';
 import type { AppConfig } from './config.js';
 import type { Db } from './db/index.js';
+import { MAX_SESSIONS_PER_USER, SESSION_COOKIE, SESSION_TTL_MS, sessionIdFromRequest, userIdForSession } from './http/auth.js';
 
-export const SESSION_COOKIE = 'rs_session';
-export const MAX_SESSIONS_PER_USER = 10;
-const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
+export { MAX_SESSIONS_PER_USER, SESSION_COOKIE };
 
 export interface AuthUser extends User { }
 
@@ -35,7 +34,7 @@ export function upsertUser(db: Db, u: { email: string; name?: string; googleSub?
 /** Creates a session row and sets the rs_session cookie. Exported for reuse by the OAuth callback. */
 export function startSession(db: Db, config: AppConfig, reply: FastifyReply, userId: string, req?: FastifyRequest): void {
   // Rotate: drop the session the browser arrived with, and keep the number of live sessions per user bounded.
-  const prior = req?.cookies?.[SESSION_COOKIE];
+  const prior = req && sessionIdFromRequest(req);
   if (prior) db.prepare('DELETE FROM sessions WHERE id = ?').run(prior);
   const id = randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + SESSION_TTL_MS);
@@ -45,18 +44,14 @@ export function startSession(db: Db, config: AppConfig, reply: FastifyReply, use
 }
 
 export function endSession(db: Db, req: FastifyRequest, reply: FastifyReply): void {
-  const sid = req.cookies?.[SESSION_COOKIE];
+  const sid = sessionIdFromRequest(req);
   if (sid) db.prepare('DELETE FROM sessions WHERE id = ?').run(sid);
   reply.clearCookie(SESSION_COOKIE, { path: '/' });
 }
 
 export function userFromRequest(db: Db, req: FastifyRequest): User | null {
-  const sid = req.cookies?.[SESSION_COOKIE];
-  if (!sid) return null;
-  const r = db.prepare('SELECT user_id, expires_at FROM sessions WHERE id = ?').get(sid) as { user_id: string; expires_at: string } | undefined;
-  if (!r) return null;
-  if (r.expires_at < new Date().toISOString()) { db.prepare('DELETE FROM sessions WHERE id = ?').run(sid); return null; }
-  return getUserById(db, r.user_id);
+  const uid = userIdForSession(db, sessionIdFromRequest(req));
+  return uid ? getUserById(db, uid) : null;
 }
 
 declare module 'fastify' {

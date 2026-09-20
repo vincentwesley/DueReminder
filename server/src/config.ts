@@ -22,6 +22,18 @@ export interface AppConfig {
   authRateLimit: number;
   /** Trust X-Forwarded-For (set when running behind a reverse proxy). */
   trustProxy: boolean;
+  /** Socket idle timeout in ms (must exceed the 25s SSE ping). */
+  connectionTimeoutMs: number;
+  /** How long an idle keep-alive connection is held open, in ms. */
+  keepAliveTimeoutMs: number;
+  /** Max time to receive a complete request, in ms. */
+  requestTimeoutMs: number;
+  /** Max length of a URL path parameter. */
+  maxParamLength: number;
+  /** Max request body size in bytes. */
+  bodyLimitBytes: number;
+  /** Max concurrent notification streams (SSE) per user; further attempts get 429. */
+  maxStreamsPerUser: number;
 }
 
 const WEAK_SECRET = /change[-_ ]?me|dev-insecure|example[-_ ]value|your[-_ ]secret|replace[-_ ]me/i;
@@ -94,6 +106,12 @@ function buildConfig(port: number, overrides: Partial<AppConfig>, env: NodeJS.Pr
     oauthRedirectUri: env.OAUTH_REDIRECT_URI ?? `http://localhost:${port}/api/auth/callback`,
     authRateLimit: Number(env.AUTH_RATE_LIMIT ?? 30),
     trustProxy: env.TRUST_PROXY === '1' || env.TRUST_PROXY === 'true',
+    connectionTimeoutMs: Number(env.CONNECTION_TIMEOUT_MS ?? 120_000),
+    keepAliveTimeoutMs: Number(env.KEEP_ALIVE_TIMEOUT_MS ?? 5_000),
+    requestTimeoutMs: Number(env.REQUEST_TIMEOUT_MS ?? 30_000),
+    maxParamLength: Number(env.MAX_PARAM_LENGTH ?? 128),
+    bodyLimitBytes: Number(env.BODY_LIMIT_BYTES ?? 262_144),
+    maxStreamsPerUser: Number(env.MAX_STREAMS_PER_USER ?? 5),
     logger: env.LOG !== '0' && env.NODE_ENV !== 'test' && !env.VITEST,
     ...overrides,
   };

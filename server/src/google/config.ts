@@ -2,7 +2,7 @@ import type { Database } from 'better-sqlite3';
 import { isStrict, sessionSecretProblem } from '../config.js';
 
 export const SCOPES = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/calendar.events'];
-export const SESSION_COOKIE = 'rs_session';
+export { SESSION_COOKIE } from '../http/auth.js';
 export const OAUTH_COOKIE = 'rs_oauth';
 
 export interface GoogleConfig {

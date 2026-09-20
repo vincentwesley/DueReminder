@@ -5,12 +5,13 @@ import { AppError, notFound } from '../errors.js';
 import { createList, createTag, deleteList, deleteTag, listLists, listTags, updateList } from '../services/lists.js';
 import { defaultListId, type Ctx } from '../services/reminders.js';
 import { seedDemoData } from '../services/demo.js';
+import { idParam, uidOf } from '../http/auth.js';
 import { endSession, startSession, upsertUser } from '../session.js';
 
-const idOf = (req: { params: unknown }) => (req.params as { id: string }).id;
 
 export function miscRoutes(app: FastifyInstance, ctx: Ctx) {
-  const uid = (req: { user: { id: string } | null }) => req.user!.id;
+  const uid = uidOf;
+  const idOf = idParam;
 
   app.get('/health', async () => ({ ok: true, demo: ctx.config.demoMode }));
   app.get('/me', async (req) => req.user);

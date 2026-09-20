@@ -8,11 +8,12 @@ import {
   uncompleteReminder, updateReminder, type Ctx,
 } from '../services/reminders.js';
 import { isValidTz } from '../services/tz.js';
-import { badRequest } from '../errors.js';
+import { AppError, badRequest } from '../errors.js';
+import { idParam, uidOf } from '../http/auth.js';
 
 export function reminderRoutes(app: FastifyInstance, ctx: Ctx) {
-  const uid = (req: { user: { id: string } | null }) => req.user!.id;
-  const idOf = (req: { params: unknown }) => (req.params as { id: string }).id;
+  const uid = uidOf;
+  const idOf = idParam;
 
   app.get('/reminders', async (req) => {
     const q = ReminderQuerySchema.parse(req.query);
@@ -64,8 +65,12 @@ export function reminderRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   // SSE stream of due reminders: `event: due` with a Reminder JSON; a `: ping` comment every 25s.
+  const streams = new Map<string, number>();
   app.get('/notifications/stream', (req, reply) => {
     const userId = uid(req);
+    const open = streams.get(userId) ?? 0;
+    if (open >= ctx.config.maxStreamsPerUser) throw new AppError(429, 'rate_limited', 'Too many open notification streams');
+    streams.set(userId, open + 1);
     reply.hijack();
     const res = reply.raw;
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
@@ -81,6 +86,10 @@ export function reminderRoutes(app: FastifyInstance, ctx: Ctx) {
     };
     res.write(': connected\n\n');
     const timer = setInterval(tick, 5000);
-    req.raw.on('close', () => clearInterval(timer));
+    req.raw.on('close', () => {
+      clearInterval(timer);
+      const n = (streams.get(userId) ?? 1) - 1;
+      if (n <= 0) streams.delete(userId); else streams.set(userId, n);
+    });
   });
 }

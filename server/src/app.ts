@@ -13,8 +13,9 @@ import { reminderRoutes } from './routes/reminders.js';
 import { loadGoogle } from './services/hooks.js';
 import type { Ctx } from './services/reminders.js';
 import { userFromRequest } from './session.js';
+import { PUBLIC_PATHS } from './http/auth.js';
+import { CSRF_MESSAGE, failsCsrf, isSafeMethod } from './http/csrf.js';
 
-const PUBLIC = new Set(['/api/health', '/api/demo/login', '/api/auth/login', '/api/auth/google/start', '/api/auth/callback', '/api/auth/me']);
 const IDEM_TTL_MS = 24 * 3600_000;
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml',
@@ -52,7 +53,13 @@ export async function buildApp(overrides: Partial<AppConfig> = {}): Promise<Fast
   google.migrate?.(db);
   const ctx: Ctx = { db, config, hooks: google.hooks };
 
-  const app = Fastify({ logger: config.logger ? { level: 'info' } : false, trustProxy: config.trustProxy });
+  const app = Fastify({ logger: config.logger ? { level: 'info' } : false, trustProxy: config.trustProxy,
+    connectionTimeout: config.connectionTimeoutMs,
+    keepAliveTimeout: config.keepAliveTimeoutMs,
+    requestTimeout: config.requestTimeoutMs,
+    maxParamLength: config.maxParamLength,
+    bodyLimit: config.bodyLimitBytes,
+  });
   app.decorate('db', db);
   app.decorate('config', config);
   app.decorateRequest('user', null);
@@ -128,11 +135,9 @@ export async function buildApp(overrides: Partial<AppConfig> = {}): Promise<Fast
   app.addHook('onRequest', async (req) => {
     const path = req.url.split('?')[0]!;
     if (!path.startsWith('/api/')) return;
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['x-requested-with'] !== 'fetch') {
-      throw new AppError(403, 'unauthorized', 'Missing X-Requested-With: fetch header');
-    }
+    if (failsCsrf(req)) throw new AppError(403, 'unauthorized', CSRF_MESSAGE);
     req.user = userFromRequest(db, req);
-    if (!req.user && !PUBLIC.has(path)) throw unauthorized();
+    if (!req.user && !PUBLIC_PATHS.has(path)) throw unauthorized();
   });
 
   // Idempotency-Key replay for offline mutation queue (24h)
@@ -145,7 +150,7 @@ ${JSON.stringify(req.body ?? null)}`).digest('hex');
     return `${req.user.id}:${k}:${fingerprint}`;
   };
   app.addHook('preHandler', async (req, reply) => {
-    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return;
+    if (isSafeMethod(req.method)) return;
     const key = idemKey(req as never);
     if (!key) return;
     db.prepare('DELETE FROM idempotency_keys WHERE created_at < ?').run(new Date(Date.now() - IDEM_TTL_MS).toISOString());
@@ -157,7 +162,7 @@ ${JSON.stringify(req.body ?? null)}`).digest('hex');
     return reply.code(status).send(body || undefined);
   });
   app.addHook('onSend', async (req, reply, payload) => {
-    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || reply.statusCode >= 400 || reply.getHeader('idempotent-replay')) return payload;
+    if (isSafeMethod(req.method) || reply.statusCode >= 400 || reply.getHeader('idempotent-replay')) return payload;
     const key = idemKey(req as never);
     if (key && (typeof payload === 'string' || payload == null)) {
       db.prepare('INSERT OR IGNORE INTO idempotency_keys (key, user_id, response_json, created_at) VALUES (?, ?, ?, ?)')
