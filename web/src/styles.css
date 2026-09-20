@@ -305,3 +305,27 @@ kbd { font: 600 0.85rem ui-monospace, monospace; background: var(--surface-2); b
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
 }
+
+/* Touch: every interactive control gets a >= 44x44 CSS px hit area (WCAG comfort target). */
+@media (pointer: coarse) {
+  .btn, .btn-sm, .seg-btn, .menu button, .nav-link, .chip-btn, .sync-chip, .account { min-height: 44px; }
+  .icon-btn, .row-action, .toast .icon-btn { width: 44px; height: 44px; }
+  .row-action { opacity: 1; }
+  .sync-chip { min-width: 44px; justify-content: center; }
+  .account { min-width: 44px; }
+  .day { width: 44px; height: 44px; }
+  .filters select { min-height: 44px; }
+  .link { min-height: 44px; display: inline-flex; align-items: center; padding: 0 4px; }
+  .check { width: 44px; height: 44px; margin: -8px -6px -8px -10px; border: 0; background: none !important; }
+  .check::before { content: ''; position: absolute; width: 24px; height: 24px; inset: auto; border-radius: 50%; border: 2px solid var(--muted); background: transparent; transition: background 0.15s, border-color 0.15s; }
+  .check.p1::before { border-color: var(--p1); } .check.p2::before { border-color: var(--p2); } .check.p3::before { border-color: var(--p3); }
+  .check:hover::before { border-color: var(--primary); }
+  .check[aria-pressed='true']::before { background: var(--primary); border-color: var(--primary); }
+  .check .icon { position: relative; }
+  .bottom-nav a, .bottom-nav button { min-width: 44px; }
+  .check-row { min-height: 44px; }
+  .check-row input { width: 24px; height: 24px; margin: 10px; }
+  .check-row label { display: inline-flex; align-items: center; min-height: 44px; }
+  .item-title { min-height: 44px; }
+  .search input[type='search'], .quick-row input[type='text'] { min-height: 44px; }
+}
