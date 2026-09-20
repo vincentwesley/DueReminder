@@ -199,7 +199,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
 .meta-p1 { color: var(--p1); } .meta-p2 { color: var(--p2); } .meta-p3 { color: var(--p3); }
 .item-actions { display: flex; align-items: center; opacity: 1; }
 .menu-wrap { position: relative; }
-.menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 40; min-width: 190px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); padding: 6px; animation: pop-in 0.15s var(--ease); }
+.menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 40; min-width: 190px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); padding: 6px; animation: menu-in 0.15s var(--ease); }
 .menu button { display: block; width: 100%; text-align: left; padding: 10px 12px; border: 0; background: none; border-radius: 8px; min-height: 40px; }
 .menu button:hover, .menu button:focus-visible { background: var(--surface-2); }
 .menu-info { display: flex; flex-direction: column; padding: 8px 12px; border-bottom: 1px solid var(--border); margin-bottom: 4px; font-size: 0.9rem; }
@@ -272,6 +272,7 @@ kbd { font: 600 0.85rem ui-monospace, monospace; background: var(--surface-2); b
 
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pop-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes menu-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes sheet-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes side-in { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes rotate { to { transform: rotate(360deg); } }
@@ -309,6 +310,7 @@ kbd { font: 600 0.85rem ui-monospace, monospace; background: var(--surface-2); b
 /* Touch: every interactive control gets a >= 44x44 CSS px hit area (WCAG comfort target). */
 @media (pointer: coarse) {
   .btn, .btn-sm, .seg-btn, .menu button, .nav-link, .chip-btn, .sync-chip, .account { min-height: 44px; }
+  .menu button { min-height: 44px; box-sizing: border-box; }
   .icon-btn, .row-action, .toast .icon-btn { width: 44px; height: 44px; }
   .row-action { opacity: 1; }
   .sync-chip { min-width: 44px; justify-content: center; }

@@ -57,7 +57,7 @@ export async function buildApp(overrides: Partial<AppConfig> = {}): Promise<Fast
     connectionTimeout: config.connectionTimeoutMs,
     keepAliveTimeout: config.keepAliveTimeoutMs,
     requestTimeout: config.requestTimeoutMs,
-    maxParamLength: config.maxParamLength,
+    routerOptions: { maxParamLength: config.maxParamLength },
     bodyLimit: config.bodyLimitBytes,
   });
   app.decorate('db', db);
