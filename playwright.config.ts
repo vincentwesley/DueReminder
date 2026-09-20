@@ -39,6 +39,7 @@ export default defineConfig({
         WEB_PORT: String(APP),
         DEMO_MODE: '1',
         DEMO_PRELINK: '0',
+        AUTH_RATE_LIMIT: '10000',
         DB_PATH: ':memory:',
         LOG: '0',
         SESSION_SECRET: 'e2e-session-secret-0123456789abcdef',

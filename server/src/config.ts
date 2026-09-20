@@ -18,6 +18,10 @@ export interface AppConfig {
   googleApiBase: string;
   oauthRedirectUri: string;
   logger: boolean;
+  /** Max requests per minute per client IP on login/callback/demo routes. */
+  authRateLimit: number;
+  /** Trust X-Forwarded-For (set when running behind a reverse proxy). */
+  trustProxy: boolean;
 }
 
 const WEAK_SECRET = /change[-_ ]?me|dev-insecure|placeholder|your[-_ ]secret|replace[-_ ]me/i;
@@ -88,6 +92,8 @@ function buildConfig(port: number, overrides: Partial<AppConfig>, env: NodeJS.Pr
     googleAuthBase: env.GOOGLE_AUTH_BASE ?? 'http://localhost:4010',
     googleApiBase: env.GOOGLE_API_BASE ?? 'http://localhost:4010',
     oauthRedirectUri: env.OAUTH_REDIRECT_URI ?? `http://localhost:${port}/api/auth/callback`,
+    authRateLimit: Number(env.AUTH_RATE_LIMIT ?? 30),
+    trustProxy: env.TRUST_PROXY === '1' || env.TRUST_PROXY === 'true',
     logger: env.LOG !== '0' && env.NODE_ENV !== 'test' && !env.VITEST,
     ...overrides,
   };

@@ -21,7 +21,7 @@ export function miscRoutes(app: FastifyInstance, ctx: Ctx) {
     ctx.db.prepare('UPDATE users SET demo = 1 WHERE id = ?').run(user.id);
     defaultListId(ctx.db, user.id);
     await seedDemoData(ctx, user.id);
-    startSession(ctx.db, ctx.config, reply, user.id);
+    startSession(ctx.db, ctx.config, reply, user.id, req);
     return { ...user, demo: true };
   });
 

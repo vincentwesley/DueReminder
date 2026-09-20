@@ -30,6 +30,7 @@ export const clearCookie = (reply: FastifyReply, cfg: GoogleConfig, name: string
 export function createSession(db: Database, cfg: GoogleConfig, reply: FastifyReply, userId: string): string {
   const id = randomBytes(32).toString('hex');
   db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)').run(id, userId, new Date(Date.now() + SESSION_TTL_MS).toISOString());
+  db.prepare('DELETE FROM sessions WHERE user_id = ? AND rowid NOT IN (SELECT rowid FROM sessions WHERE user_id = ? ORDER BY rowid DESC LIMIT 10)').run(userId, userId);
   setCookie(reply, cfg, SESSION_COOKIE, id, SESSION_TTL_MS / 1000);
   return id;
 }

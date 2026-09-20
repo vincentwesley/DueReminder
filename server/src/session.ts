@@ -5,6 +5,7 @@ import type { AppConfig } from './config.js';
 import type { Db } from './db/index.js';
 
 export const SESSION_COOKIE = 'rs_session';
+export const MAX_SESSIONS_PER_USER = 10;
 const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
 
 export interface AuthUser extends User { }
@@ -32,10 +33,14 @@ export function upsertUser(db: Db, u: { email: string; name?: string; googleSub?
 }
 
 /** Creates a session row and sets the rs_session cookie. Exported for WP-O's OAuth callback. */
-export function startSession(db: Db, config: AppConfig, reply: FastifyReply, userId: string): void {
+export function startSession(db: Db, config: AppConfig, reply: FastifyReply, userId: string, req?: FastifyRequest): void {
+  // Rotate: drop the session the browser arrived with, and keep the number of live sessions per user bounded.
+  const prior = req?.cookies?.[SESSION_COOKIE];
+  if (prior) db.prepare('DELETE FROM sessions WHERE id = ?').run(prior);
   const id = randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + SESSION_TTL_MS);
   db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)').run(id, userId, expires.toISOString());
+  db.prepare('DELETE FROM sessions WHERE user_id = ? AND rowid NOT IN (SELECT rowid FROM sessions WHERE user_id = ? ORDER BY rowid DESC LIMIT ?)').run(userId, userId, MAX_SESSIONS_PER_USER);
   reply.setCookie(SESSION_COOKIE, id, { path: '/', httpOnly: true, sameSite: 'lax', secure: config.nodeEnv === 'production', expires });
 }
 

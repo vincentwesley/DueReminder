@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 import { ZodError } from 'zod';
@@ -20,10 +21,27 @@ const MIME: Record<string, string> = {
   '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.map': 'application/json', '.woff2': 'font/woff2',
 };
 
+const CSP_BASE = [
+  "default-src 'self'", "img-src 'self' https://*.googleusercontent.com data:", "style-src 'self' 'unsafe-inline'",
+  "connect-src 'self'", "font-src 'self'", "manifest-src 'self'", "worker-src 'self'", "object-src 'none'",
+  "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'",
+];
+const SESSION_PRUNE_MS = 10 * 60_000;
+const RATE_WINDOW_MS = 60_000;
+
+/** CSP for an HTML document: scripts from self plus the exact inline scripts it contains (hashed, not 'unsafe-inline'). */
+function cspFor(html: string | null): string {
+  const hashes = html
+    ? [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => `'sha256-${createHash('sha256').update(m[1]!).digest('base64')}'`)
+    : [];
+  return [`script-src 'self' ${hashes.join(' ')}`.trim(), ...CSP_BASE].join('; ');
+}
+
 declare module 'fastify' {
   interface FastifyInstance {
     db: Db;
     config: AppConfig;
+    pruneExpired: () => void;
   }
 }
 
@@ -34,11 +52,53 @@ export async function buildApp(overrides: Partial<AppConfig> = {}): Promise<Fast
   google.migrate?.(db);
   const ctx: Ctx = { db, config, hooks: google.hooks };
 
-  const app = Fastify({ logger: config.logger ? { level: 'info' } : false });
+  const app = Fastify({ logger: config.logger ? { level: 'info' } : false, trustProxy: config.trustProxy });
   app.decorate('db', db);
   app.decorate('config', config);
   app.decorateRequest('user', null);
   app.addHook('onClose', async () => { db.close(); });
+
+  // Expired sessions and abandoned OAuth states would otherwise accumulate forever.
+  const prune = () => {
+    db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
+    try { db.prepare('DELETE FROM oauth_states WHERE created_at < ?').run(Date.now() - 10 * 60_000); } catch { /* table is created by the google migration */ }
+  };
+  prune();
+  const pruneTimer = setInterval(prune, SESSION_PRUNE_MS);
+  pruneTimer.unref();
+  app.addHook('onClose', async () => { clearInterval(pruneTimer); });
+  app.decorate('pruneExpired', prune);
+
+  // Security headers on every response (API and static).
+  app.addHook('onSend', async (req, reply, payload) => {
+    reply.header('x-content-type-options', 'nosniff');
+    reply.header('x-frame-options', 'DENY');
+    reply.header('referrer-policy', 'no-referrer');
+    reply.header('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+    reply.header('cross-origin-opener-policy', 'same-origin');
+    if (config.nodeEnv === 'production') reply.header('strict-transport-security', 'max-age=31536000; includeSubDomains');
+    const isHtml = String(reply.getHeader('content-type') ?? '').startsWith('text/html');
+    reply.header('content-security-policy', cspFor(isHtml && (typeof payload === 'string' || Buffer.isBuffer(payload)) ? payload.toString('utf8') : null));
+    if (req.url.startsWith('/api/')) reply.header('cache-control', 'no-store');
+    return payload;
+  });
+
+  // Fixed-window rate limit for the unauthenticated, row-creating routes (login, callback, demo).
+  const hits = new Map<string, { n: number; reset: number }>();
+  app.addHook('onRequest', async (req, reply) => {
+    const path = req.url.split('?')[0]!;
+    const limited = path.startsWith('/api/demo/') || (path.startsWith('/api/auth/') && path !== '/api/auth/me' && path !== '/api/auth/logout');
+    if (!limited) return;
+    const t = Date.now();
+    if (hits.size > 5000) for (const [k, v] of hits) if (v.reset <= t) hits.delete(k);
+    const key = `${req.ip}:${path.startsWith('/api/demo/') ? 'demo' : 'auth'}`;
+    const h = hits.get(key);
+    if (!h || h.reset <= t) { hits.set(key, { n: 1, reset: t + RATE_WINDOW_MS }); return; }
+    if (++h.n > config.authRateLimit) {
+      reply.header('retry-after', String(Math.ceil((h.reset - t) / 1000)));
+      throw new AppError(429, 'rate_limited', 'Too many requests. Try again shortly.');
+    }
+  });
 
   await app.register(cookie);
   await app.register(cors, { origin: [`http://localhost:${config.webPort}`, `http://127.0.0.1:${config.webPort}`], credentials: true });
@@ -113,9 +173,15 @@ export async function buildApp(overrides: Partial<AppConfig> = {}): Promise<Fast
 function serveStatic(config: AppConfig, url: string, reply: import('fastify').FastifyReply) {
   const root = resolve(config.webDist);
   if (!existsSync(root)) return reply.code(404).send({ error: { code: 'not_found', message: 'Route not found' } });
-  let file = resolve(join(root, decodeURIComponent(url.split('?')[0]!)));
+  let decoded: string;
+  try { decoded = decodeURIComponent(url.split('?')[0]!); } catch { return reply.code(400).send({ error: { code: 'bad_request', message: 'Malformed URL' } }); }
+  let file = resolve(join(root, decoded));
   if (file !== root && !file.startsWith(root + sep)) return reply.code(404).send({ error: { code: 'not_found', message: 'Route not found' } });
   if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, 'index.html'); // SPA fallback
   if (!existsSync(file)) return reply.code(404).send({ error: { code: 'not_found', message: 'Route not found' } });
-  return reply.header('content-type', MIME[extname(file)] ?? 'application/octet-stream').send(readFileSync(file));
+  const hashed = file.startsWith(join(root, 'assets') + sep);
+  return reply
+    .header('cache-control', hashed ? 'public, max-age=31536000, immutable' : 'no-cache')
+    .header('content-type', MIME[extname(file)] ?? 'application/octet-stream')
+    .send(readFileSync(file));
 }

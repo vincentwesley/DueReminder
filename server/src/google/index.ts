@@ -136,7 +136,7 @@ export async function registerGoogle(app: FastifyInstance, deps: GoogleDeps): Pr
     poller = setInterval(() => {
       const rows = ctx.db.prepare("SELECT user_id FROM google_accounts WHERE status != 'reauth_required'").all() as { user_id: string }[];
       for (const { user_id } of rows) {
-        const active = ctx.db.prepare('SELECT 1 FROM sessions WHERE user_id = ? LIMIT 1').all(user_id).length > 0; // only while a session exists
+        const active = ctx.db.prepare('SELECT 1 FROM sessions WHERE user_id = ? AND expires_at > ? LIMIT 1').all(user_id, new Date().toISOString()).length > 0; // only while a session exists
         if (active) runSync(ctx, user_id).catch(() => undefined);
       }
     }, config.pollMs);
