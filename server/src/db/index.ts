@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS reminder_tags (
   reminder_id TEXT NOT NULL REFERENCES reminders(id) ON DELETE CASCADE,
   tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY (reminder_id, tag_id)
 );
+CREATE TABLE IF NOT EXISTS subtasks (
+  id TEXT PRIMARY KEY, reminder_id TEXT NOT NULL REFERENCES reminders(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_subtasks_reminder ON subtasks(reminder_id, position);
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   key TEXT PRIMARY KEY, user_id TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL
 );

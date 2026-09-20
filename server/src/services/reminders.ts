@@ -6,6 +6,8 @@ import { AppError, badRequest, conflict, notFound } from '../errors.js';
 import type { SyncHooks } from './hooks.js';
 import { nextOccurrence, normalizeRrule, wallClock } from './recurrence.js';
 import { isValidTz, startOfDay } from './tz.js';
+import { cleanLine, cleanText, MAX_NOTES } from './sanitize.js';
+import { addSubtask, patchSubtask, removeSubtask, setSubtasks, subtasksFor } from './subtasks.js';
 
 export interface Ctx { db: Db; config: AppConfig; hooks: SyncHooks }
 
@@ -28,12 +30,12 @@ function tagsFor(db: Db, ids: string[]): Map<string, string[]> {
   return m;
 }
 
-function toReminder(r: Row, tagIds: string[]): Reminder {
+function toReminder(r: Row, tagIds: string[], subtasks: Reminder['subtasks'] = []): Reminder {
   return {
     id: r.id, listId: r.list_id, title: r.title, notes: r.notes, status: r.status, priority: r.priority as Priority,
     dueAt: r.due_at, allDay: !!r.all_day, timezone: r.timezone, rrule: r.rrule, snoozedUntil: r.snoozed_until,
     completedAt: r.completed_at, tagIds, calendarSync: !!r.calendar_sync, googleEventId: r.google_event_id,
-    googleEtag: r.google_etag, createdAt: r.created_at, updatedAt: r.updated_at, deletedAt: r.deleted_at, version: r.version,
+    googleEtag: r.google_etag, createdAt: r.created_at, updatedAt: r.updated_at, deletedAt: r.deleted_at, version: r.version, subtasks,
   };
 }
 
@@ -44,7 +46,7 @@ function rowById(db: Db, userId: string, id: string): Row | undefined {
 export function getReminder(ctx: Ctx, userId: string, id: string): Reminder {
   const r = rowById(ctx.db, userId, id);
   if (!r) throw notFound('Reminder not found');
-  return toReminder(r, tagsFor(ctx.db, [id]).get(id) ?? []);
+  return toReminder(r, tagsFor(ctx.db, [id]).get(id) ?? [], subtasksFor(ctx.db, [id]).get(id) ?? []);
 }
 
 export function defaultListId(db: Db, userId: string): string {
@@ -98,10 +100,11 @@ export function createReminder(ctx: Ctx, userId: string, input: ReminderCreate):
   db.transaction(() => {
     db.prepare(`INSERT INTO reminders (id, user_id, list_id, title, notes, status, priority, due_at, all_day, timezone, rrule, snoozed_until, completed_at, calendar_sync, created_at, updated_at, version)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
-      id, userId, listId, input.title.trim(), input.notes ?? '', done ? 'done' : 'open', input.priority ?? 0,
+      id, userId, listId, cleanLine(input.title, 500) || 'Untitled', cleanText(input.notes ?? '', MAX_NOTES), done ? 'done' : 'open', input.priority ?? 0,
       cleanDate(input.dueAt) ?? null, input.allDay ? 1 : 0, cleanTz(input.timezone, ctx.config.defaultTimezone), cleanRrule(input.rrule),
       cleanDate(input.snoozedUntil) ?? null, done ? t : null, input.calendarSync ? 1 : 0, t, t);
     setTags(db, id, tagIds);
+    if (input.subtasks?.length) setSubtasks(db, id, input.subtasks);
   })();
   sync(ctx, userId, id, 'upsert', false, !!input.calendarSync);
   return getReminder(ctx, userId, id);
@@ -115,8 +118,8 @@ export function updateReminder(ctx: Ctx, userId: string, id: string, patch: Remi
     throw conflict('Reminder was modified elsewhere', getReminder(ctx, userId, id));
   }
   const set: Record<string, unknown> = {};
-  if (patch.title !== undefined) set.title = patch.title.trim();
-  if (patch.notes !== undefined) set.notes = patch.notes;
+  if (patch.title !== undefined) set.title = cleanLine(patch.title, 500) || cur.title;
+  if (patch.notes !== undefined) set.notes = cleanText(patch.notes, MAX_NOTES);
   if (patch.listId !== undefined) { checkList(db, userId, patch.listId); set.list_id = patch.listId; }
   if (patch.priority !== undefined) set.priority = patch.priority;
   if (patch.dueAt !== undefined) {
@@ -139,11 +142,23 @@ export function updateReminder(ctx: Ctx, userId: string, id: string, patch: Remi
     db.prepare(`UPDATE reminders SET ${cols.map((c) => `${c} = ?`).join(', ')}${cols.length ? ',' : ''} updated_at = ?, version = version + 1 WHERE id = ?`)
       .run(...cols.map((c) => set[c]), t, id);
     if (patch.tagIds !== undefined) setTags(db, id, [...new Set(patch.tagIds)]);
+    if (patch.subtasks !== undefined) setSubtasks(db, id, patch.subtasks);
   })();
   const after = getReminder(ctx, userId, id);
   sync(ctx, userId, id, 'upsert', !!cur.calendar_sync, after.calendarSync);
   return after;
 }
+
+/** Checklist edits bump the reminder version (so clients see the change) but never sync to Google. */
+export function editSubtasks(ctx: Ctx, userId: string, id: string, fn: (db: Db) => void): Reminder {
+  if (!rowById(ctx.db, userId, id)) throw notFound('Reminder not found');
+  ctx.db.transaction(() => {
+    fn(ctx.db);
+    ctx.db.prepare('UPDATE reminders SET updated_at = ?, version = version + 1 WHERE id = ?').run(nowIso(), id);
+  })();
+  return getReminder(ctx, userId, id);
+}
+export const subtaskOps = { addSubtask, patchSubtask, removeSubtask };
 
 export function completeReminder(ctx: Ctx, userId: string, id: string): Reminder {
   const cur = rowById(ctx.db, userId, id);
@@ -224,8 +239,9 @@ export function listReminders(ctx: Ctx, userId: string, q: ListQuery, now = new 
   const rows = ctx.db.prepare(`SELECT * FROM reminders WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...args, q.limit + 1, offset) as Row[];
   const page = rows.slice(0, q.limit);
   const tm = tagsFor(ctx.db, page.map((r) => r.id));
+  const sm = subtasksFor(ctx.db, page.map((r) => r.id));
   return {
-    items: page.map((r) => toReminder(r, tm.get(r.id) ?? [])),
+    items: page.map((r) => toReminder(r, tm.get(r.id) ?? [], sm.get(r.id) ?? [])),
     nextCursor: rows.length > q.limit ? Buffer.from(String(offset + q.limit)).toString('base64url') : null,
   };
 }
@@ -236,7 +252,8 @@ export function dueNotifications(ctx: Ctx, userId: string, since: Date, now = ne
     AND (all_day = 0 OR snoozed_until IS NOT NULL) AND COALESCE(snoozed_until, due_at) > ? AND COALESCE(snoozed_until, due_at) <= ?
     ORDER BY COALESCE(snoozed_until, due_at)`).all(userId, since.toISOString(), now.toISOString()) as Row[];
   const tm = tagsFor(ctx.db, rows.map((r) => r.id));
-  return rows.map((r) => toReminder(r, tm.get(r.id) ?? []));
+  const sm = subtasksFor(ctx.db, rows.map((r) => r.id));
+  return rows.map((r) => toReminder(r, tm.get(r.id) ?? [], sm.get(r.id) ?? []));
 }
 
 export { AppError };

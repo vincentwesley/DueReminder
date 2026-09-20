@@ -9,6 +9,9 @@ export interface User { id: string; email: string; name: string; pictureUrl?: st
 export interface List { id: string; name: string; color: string; sortOrder: number; createdAt: ISODateTime; updatedAt: ISODateTime; deletedAt: ISODateTime | null; }
 export interface Tag { id: string; name: string; color: string; }
 
+export interface Subtask { id: string; title: string; done: boolean; position: number }
+export interface SubtaskInput { id?: string; title: string; done?: boolean }
+
 export interface Reminder {
   id: string;
   listId: string;
@@ -30,6 +33,7 @@ export interface Reminder {
   updatedAt: ISODateTime;
   deletedAt: ISODateTime | null;    // soft delete (tombstone) for sync
   version: number;                  // increments each local write; used for optimistic concurrency
+  subtasks?: Subtask[];             // checklist items, ordered by position
 }
 
 export type SyncStatus = 'disconnected' | 'idle' | 'syncing' | 'offline' | 'error' | 'reauth_required';
@@ -49,7 +53,7 @@ export interface ApiError { error: { code: 'bad_request' | 'unauthorized' | 'not
 
 export interface QuickAddParse { title: string; dueAt: ISODateTime | null; allDay: boolean; rrule: string | null; priority: Priority; tags: string[]; listName: string | null; }
 
-export type ReminderCreate = Partial<Omit<Reminder, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'version' | 'completedAt' | 'googleEventId' | 'googleEtag'>> & { title: string };
+export type ReminderCreate = Partial<Omit<Reminder, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'version' | 'completedAt' | 'googleEventId' | 'googleEtag' | 'subtasks'>> & { title: string; subtasks?: SubtaskInput[] };
 export type ReminderPatch = Partial<ReminderCreate> & { version?: number };
 
 export interface ListReminders { items: Reminder[]; nextCursor: string | null; }

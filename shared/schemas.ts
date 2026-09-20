@@ -5,6 +5,13 @@ export const isoDateTime = z.iso.datetime({ offset: true });
 export const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'color must be #RRGGBB');
 export const prioritySchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]);
 
+export const SubtaskInputSchema = z.object({
+  id: z.string().min(1).max(64).optional(),
+  title: z.string().trim().min(1).max(200),
+  done: z.boolean().optional(),
+});
+export const SubtaskPatchSchema = z.object({ title: z.string().trim().min(1).max(200).optional(), done: z.boolean().optional() });
+
 const reminderFields = z
   .object({
     listId: z.string().min(1),
@@ -18,6 +25,7 @@ const reminderFields = z
     snoozedUntil: isoDateTime.nullable(),
     tagIds: z.array(z.string()).max(50),
     calendarSync: z.boolean(),
+    subtasks: z.array(SubtaskInputSchema).max(100),
   })
   .partial();
 

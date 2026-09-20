@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import type { ReminderCreate, ReminderPatch } from '../../../shared/types.js';
-import { QuickAddSchema, ReminderCreateSchema, ReminderPatchSchema, ReminderQuerySchema, SnoozeSchema } from '../../../shared/schemas.js';
+import { QuickAddSchema, ReminderCreateSchema, ReminderPatchSchema, ReminderQuerySchema, SnoozeSchema, SubtaskInputSchema, SubtaskPatchSchema } from '../../../shared/schemas.js';
 import { parseQuickAdd } from '../nlp/quickAdd.js';
 import { createList, findListByName, findOrCreateTag } from '../services/lists.js';
 import {
   completeReminder, createReminder, deleteReminder, dueNotifications, getReminder, listReminders, snoozeReminder,
-  uncompleteReminder, updateReminder, type Ctx,
+  editSubtasks, subtaskOps, uncompleteReminder, updateReminder, type Ctx,
 } from '../services/reminders.js';
 import { isValidTz } from '../services/tz.js';
 import { AppError, badRequest } from '../errors.js';
@@ -59,6 +59,19 @@ export function reminderRoutes(app: FastifyInstance, ctx: Ctx) {
   app.post('/reminders/:id/complete', async (req) => completeReminder(ctx, uid(req), idOf(req)));
   app.post('/reminders/:id/uncomplete', async (req) => uncompleteReminder(ctx, uid(req), idOf(req)));
   app.post('/reminders/:id/snooze', async (req) => snoozeReminder(ctx, uid(req), idOf(req), SnoozeSchema.parse(req.body)));
+  app.post('/reminders/:id/subtasks', async (req, reply) => {
+    const body = SubtaskInputSchema.parse(req.body);
+    return reply.code(201).send(editSubtasks(ctx, uid(req), idOf(req), (db) => subtaskOps.addSubtask(db, idOf(req), body)));
+  });
+  app.patch('/reminders/:id/subtasks/:sid', async (req) => {
+    const body = SubtaskPatchSchema.parse(req.body);
+    const sid = (req.params as { sid: string }).sid;
+    return editSubtasks(ctx, uid(req), idOf(req), (db) => subtaskOps.patchSubtask(db, idOf(req), sid, body));
+  });
+  app.delete('/reminders/:id/subtasks/:sid', async (req) => {
+    const sid = (req.params as { sid: string }).sid;
+    return editSubtasks(ctx, uid(req), idOf(req), (db) => subtaskOps.removeSubtask(db, idOf(req), sid));
+  });
   app.delete('/reminders/:id', async (req, reply) => {
     deleteReminder(ctx, uid(req), idOf(req));
     return reply.code(204).send();
