@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { List, Priority, QuickAddParse, Reminder, ReminderCreate, ReminderPatch, SyncState, Tag, User } from '@shared/types';
 import { api, ApiFail, NetworkFail, request } from './api';
+import { processQueue } from './flush';
 import { cacheClear, cacheGet, cacheSet, newKey, queueAdd, queueAll, queueRemove } from './offline';
 
 export interface Toast { id: number; text: string; kind: 'info' | 'error' | 'success' }
@@ -89,12 +90,14 @@ export async function demoLogin() {
     void cacheSet('user', user);
     await loadAll();
     void refreshSync();
+    void flushQueue();
   } catch (e) {
     toast(`Could not start the demo: ${errText(e)}`, 'error');
   }
 }
 
 export async function logout() {
+  if (state.pending > 0 && typeof window !== 'undefined' && !window.confirm(`${state.pending} offline change${state.pending === 1 ? ' has' : 's have'} not synced yet and will be lost if you sign out. Sign out anyway?`)) return;
   try { await api.logout(); } catch { /* still clear local state */ }
   await cacheClear();
   setState({ user: null, reminders: [], lists: [], tags: [], sync: null, editing: null, syncOpen: false, pending: 0 });
@@ -172,28 +175,35 @@ export async function setCalendarId(calendarId: string) {
 /* ---------- offline queue ---------- */
 
 let flushing = false;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
 export async function flushQueue() {
   if (flushing) return;
   flushing = true;
   try {
     const ops = await queueAll();
     setState({ pending: ops.length });
-    let sent = 0;
-    for (const op of ops) {
-      try {
-        await request(op.method, op.path, op.body, { 'Idempotency-Key': op.key });
-      } catch (e) {
-        if (e instanceof NetworkFail) { setState({ online: false }); break; }
-        // A rejected op will never succeed on retry; drop it and tell the user.
-        toast(`A queued change was rejected: ${errText(e)}`, 'error');
-      }
-      if (op.id !== undefined) await queueRemove(op.id);
-      sent++;
-    }
+    if (ops.length === 0) return;
+    const res = await processQueue(ops, {
+      send: (op, body, key) => request(op.method, op.path, body, { 'Idempotency-Key': key }),
+      remove: queueRemove,
+    });
     setState({ pending: (await queueAll()).length });
-    if (sent > 0) {
+    if (res.halted === 'network') setState({ online: false });
+    if (res.halted === 'auth') {
+      // Keep every queued change; they replay after the next sign-in.
+      setState({ user: null });
+      toast('Your session expired. Sign in again and your saved offline changes will sync.', 'error');
+    }
+    if (res.halted === 'retry') {
+      toast('The server is busy. Your offline changes are kept and will retry shortly.', 'info');
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => void flushQueue(), 30_000);
+    }
+    for (const msg of res.dropped) toast(`A queued change was rejected: ${msg}`, 'error');
+    if (res.rebased > 0) toast(`${res.rebased} offline edit${res.rebased === 1 ? ' was' : 's were'} applied on top of newer changes made elsewhere.`, 'info');
+    if (res.sent > 0) {
       await loadAll();
-      toast(`Synced ${sent} offline change${sent === 1 ? '' : 's'}`, 'success');
+      toast(`Synced ${res.sent} offline change${res.sent === 1 ? '' : 's'}`, 'success');
       void refreshSync();
     }
   } finally {
