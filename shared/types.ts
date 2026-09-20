@@ -58,3 +58,22 @@ export type ReminderPatch = Partial<ReminderCreate> & { version?: number };
 
 export interface ListReminders { items: Reminder[]; nextCursor: string | null; }
 export type ReminderFilter = 'today' | 'upcoming' | 'overdue' | 'all' | 'done';
+
+export interface ReminderTemplate {
+  id: string;
+  name: string;
+  title: string;
+  notes: string;
+  listId: string | null;
+  priority: Priority;
+  allDay: boolean;
+  timezone: string | null;
+  rrule: string | null;
+  tagIds: string[];
+  subtasks: { title: string }[];
+  dueOffsetMinutes: number | null;  // due = now + offset when a reminder is created from the template
+  timeOfDay: string | null;         // "HH:MM" wall clock; due = next such time in the reminder timezone (wins over the offset)
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+}
+export type ReminderTemplateInput = Partial<Omit<ReminderTemplate, 'id' | 'createdAt' | 'updatedAt'>> & { name: string };

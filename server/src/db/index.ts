@@ -38,6 +38,13 @@ CREATE TABLE IF NOT EXISTS subtasks (
   title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_subtasks_reminder ON subtasks(reminder_id, position);
+CREATE TABLE IF NOT EXISTS templates (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, title TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', list_id TEXT, priority INTEGER NOT NULL DEFAULT 0,
+  all_day INTEGER NOT NULL DEFAULT 0, timezone TEXT, rrule TEXT, tag_ids TEXT NOT NULL DEFAULT '[]', subtasks TEXT NOT NULL DEFAULT '[]',
+  due_offset_minutes INTEGER, time_of_day TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_templates_user ON templates(user_id, name);
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   key TEXT PRIMARY KEY, user_id TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL
 );

@@ -60,3 +60,29 @@ export const ReminderQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   tz: z.string().optional(),
 });
+
+export const timeOfDaySchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:MM');
+export const TemplatePatchSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  title: z.string().trim().min(1).max(500),
+  notes: z.string().max(20000),
+  listId: z.string().min(1).nullable(),
+  priority: prioritySchema,
+  allDay: z.boolean(),
+  timezone: z.string().min(1).max(100).nullable(),
+  rrule: z.string().max(500).nullable(),
+  tagIds: z.array(z.string()).max(50),
+  subtasks: z.array(z.object({ title: z.string().trim().min(1).max(200) })).max(100),
+  dueOffsetMinutes: z.number().int().min(-525600).max(525600 * 5).nullable(),
+  timeOfDay: timeOfDaySchema.nullable(),
+}).partial();
+export const TemplateCreateSchema = TemplatePatchSchema.extend({
+  name: z.string().trim().min(1).max(100),
+  fromReminderId: z.string().min(1).optional(),
+});
+export const TemplateUseSchema = z.object({
+  title: z.string().trim().min(1).max(500).optional(),
+  dueAt: isoDateTime.nullable().optional(),
+  listId: z.string().min(1).optional(),
+  timezone: z.string().min(1).max(100).optional(),
+}).default({});

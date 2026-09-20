@@ -10,6 +10,7 @@ import { openDb, type Db } from './db/index.js';
 import { AppError, unauthorized } from './errors.js';
 import { miscRoutes, fallbackSyncRoutes } from './routes/misc.js';
 import { reminderRoutes } from './routes/reminders.js';
+import { templateRoutes } from './routes/templates.js';
 import { loadGoogle } from './services/hooks.js';
 import type { Ctx } from './services/reminders.js';
 import { userFromRequest } from './session.js';
@@ -174,6 +175,7 @@ ${JSON.stringify(req.body ?? null)}`).digest('hex');
   await app.register(async (api) => {
     miscRoutes(api, ctx);
     reminderRoutes(api, ctx);
+    templateRoutes(api, ctx);
     if (google.registerGoogle) await google.registerGoogle(api, { db, config });
     else fallbackSyncRoutes(api);
   }, { prefix: '/api' });
