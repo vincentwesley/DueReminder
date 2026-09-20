@@ -45,5 +45,9 @@ export function openDb(path: string): Db {
   if (path !== ':memory:') db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+  const cols = (db.prepare('PRAGMA table_info(reminders)').all() as { name: string }[]).map((c) => c.name);
+  // Wall-clock anchor of a recurring series, valid only while due_at still equals rrule_anchor_due.
+  if (!cols.includes('rrule_anchor')) db.exec('ALTER TABLE reminders ADD COLUMN rrule_anchor TEXT');
+  if (!cols.includes('rrule_anchor_due')) db.exec('ALTER TABLE reminders ADD COLUMN rrule_anchor_due TEXT');
   return db;
 }

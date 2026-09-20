@@ -42,9 +42,11 @@ describe('API (inject)', () => {
     const cookie = `rs_session=${login.cookies[0]!.value}`;
     const headers = { ...H, cookie };
 
-    const rec = (await app.inject({ method: 'POST', url: '/api/reminders', headers, payload: { title: 'r', dueAt: '2026-09-16T09:00:00.000Z', rrule: 'FREQ=DAILY', timezone: 'UTC' } })).json();
+    const due = new Date(Date.now() + 3_600_000);
+    due.setUTCMilliseconds(0);
+    const rec = (await app.inject({ method: 'POST', url: '/api/reminders', headers, payload: { title: 'r', dueAt: due.toISOString(), rrule: 'FREQ=DAILY', timezone: 'UTC' } })).json();
     const c = (await app.inject({ method: 'POST', url: `/api/reminders/${rec.id}/complete`, headers })).json();
-    expect(c).toMatchObject({ status: 'open', dueAt: '2026-09-17T09:00:00.000Z', completedAt: null, version: 2 });
+    expect(c).toMatchObject({ status: 'open', dueAt: new Date(due.getTime() + 86_400_000).toISOString(), completedAt: null, version: 2 });
 
     const one = (await app.inject({ method: 'POST', url: '/api/reminders', headers, payload: { title: 'o' } })).json();
     const d = (await app.inject({ method: 'POST', url: `/api/reminders/${one.id}/complete`, headers })).json();
@@ -57,6 +59,21 @@ describe('API (inject)', () => {
 
     expect((await app.inject({ method: 'GET', url: '/api/me' })).statusCode).toBe(401);
     expect((await app.inject({ method: 'POST', url: '/api/reminders', headers: { cookie }, payload: { title: 'x' } })).statusCode).toBe(403);
+    await app.close();
+  });
+
+  it('completing an overdue recurring reminder lands after now at the same wall time', async () => {
+    const app = await buildApp({ dbPath: ':memory:', demoMode: true, logger: false });
+    const login = await app.inject({ method: 'POST', url: '/api/demo/login', headers: H });
+    const headers = { ...H, cookie: `rs_session=${login.cookies[0]!.value}` };
+    const due = new Date(Date.now() - 50 * 86_400_000);
+    due.setUTCHours(9, 0, 0, 0);
+    const rec = (await app.inject({ method: 'POST', url: '/api/reminders', headers, payload: { title: 'late', dueAt: due.toISOString(), rrule: 'FREQ=DAILY', timezone: 'UTC' } })).json();
+    const c = (await app.inject({ method: 'POST', url: `/api/reminders/${rec.id}/complete`, headers })).json();
+    expect(Date.parse(c.dueAt)).toBeGreaterThan(Date.now());
+    expect(Date.parse(c.dueAt)).toBeLessThanOrEqual(Date.now() + 86_400_000);
+    expect(c.dueAt).toContain('T09:00:00');
+    expect(c.status).toBe('open');
     await app.close();
   });
 });

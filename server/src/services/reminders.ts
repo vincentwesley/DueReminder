@@ -4,7 +4,7 @@ import type { Db } from '../db/index.js';
 import type { AppConfig } from '../config.js';
 import { AppError, badRequest, conflict, notFound } from '../errors.js';
 import type { SyncHooks } from './hooks.js';
-import { nextOccurrence, normalizeRrule } from './recurrence.js';
+import { nextOccurrence, normalizeRrule, wallClock } from './recurrence.js';
 import { isValidTz, startOfDay } from './tz.js';
 
 export interface Ctx { db: Db; config: AppConfig; hooks: SyncHooks }
@@ -14,6 +14,7 @@ interface Row {
   due_at: string | null; all_day: number; timezone: string; rrule: string | null; snoozed_until: string | null;
   completed_at: string | null; calendar_sync: number; google_event_id: string | null; google_etag: string | null;
   created_at: string; updated_at: string; deleted_at: string | null; version: number;
+  rrule_anchor?: string | null; rrule_anchor_due?: string | null;
 }
 
 const iso = (d: string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);
@@ -148,10 +149,11 @@ export function completeReminder(ctx: Ctx, userId: string, id: string): Reminder
   const cur = rowById(ctx.db, userId, id);
   if (!cur) throw notFound('Reminder not found');
   if (cur.status === 'done') return getReminder(ctx, userId, id);
-  const next = cur.rrule && cur.due_at ? nextOccurrence(cur.rrule, cur.due_at, cur.timezone) : null;
+  const anchor = cur.due_at && cur.rrule_anchor && cur.rrule_anchor_due === cur.due_at ? cur.rrule_anchor : cur.due_at ? wallClock(cur.timezone, cur.due_at) : undefined;
+  const next = cur.rrule && cur.due_at ? nextOccurrence(cur.rrule, cur.due_at, cur.timezone, { anchor, now: Date.now() }) : null;
   const t = nowIso();
   if (next) {
-    ctx.db.prepare("UPDATE reminders SET due_at = ?, rrule = ?, snoozed_until = NULL, status = 'open', completed_at = NULL, updated_at = ?, version = version + 1 WHERE id = ?").run(next.dueAt, next.rrule, t, id);
+    ctx.db.prepare("UPDATE reminders SET due_at = ?, rrule = ?, rrule_anchor = ?, rrule_anchor_due = ?, snoozed_until = NULL, status = 'open', completed_at = NULL, updated_at = ?, version = version + 1 WHERE id = ?").run(next.dueAt, next.rrule, anchor ?? null, next.dueAt, t, id);
   } else {
     ctx.db.prepare("UPDATE reminders SET status = 'done', completed_at = ?, snoozed_until = NULL, updated_at = ?, version = version + 1 WHERE id = ?").run(t, t, id);
   }

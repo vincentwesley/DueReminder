@@ -32,11 +32,13 @@ export function offsetMs(tz: string, ms: number): number {
 /** Real instant (ms) whose wall-clock time in tz equals the given fields. */
 export function wallToInstant(tz: string, y: number, mo: number, d: number, h = 0, mi = 0, s = 0): number {
   const guess = Date.UTC(y, mo - 1, d, h, mi, s);
-  const o1 = offsetMs(tz, guess);
-  let t = guess - o1;
-  const o2 = offsetMs(tz, t);
-  if (o2 !== o1) t = guess - o2;
-  return t;
+  const matches = (t: number) => toFloating(tz, t) === guess;
+  const t1 = guess - offsetMs(tz, guess);
+  if (matches(t1)) return t1;
+  const t2 = guess - offsetMs(tz, t1);
+  if (matches(t2)) return t2;
+  // The wall time falls in a DST gap and does not exist: move forward (02:30 becomes 03:30), like Google Calendar.
+  return Math.max(t1, t2);
 }
 
 export function startOfDay(tz: string, ms: number, plusDays = 0): number {
