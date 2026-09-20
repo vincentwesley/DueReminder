@@ -31,5 +31,14 @@ export function enqueueSync(db: Database, userId: string, reminderId: string, op
   trigger?.(userId);
 }
 
+/** Ops still waiting to be pushed (excludes ones that exhausted their retries). */
 export const pendingOps = (db: Database, userId: string): number =>
-  (db.prepare('SELECT COUNT(*) AS n FROM outbox WHERE user_id = ?').get(userId) as { n: number }).n;
+  (db.prepare('SELECT COUNT(*) AS n FROM outbox WHERE user_id = ? AND failed = 0').get(userId) as { n: number }).n;
+
+/** Ops that could not be pushed after all retries; they stay until edited again or retried with Sync now. */
+export const failedOps = (db: Database, userId: string): number =>
+  (db.prepare('SELECT COUNT(*) AS n FROM outbox WHERE user_id = ? AND failed = 1').get(userId) as { n: number }).n;
+
+export const retryFailedOps = (db: Database, userId: string): void => {
+  db.prepare('UPDATE outbox SET failed = 0, attempts = 0, next_attempt_at = 0 WHERE user_id = ? AND failed = 1').run(userId);
+};

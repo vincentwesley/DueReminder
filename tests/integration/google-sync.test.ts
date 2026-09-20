@@ -160,7 +160,7 @@ describe('two-way calendar sync against mock', () => {
     const id = addReminder(h.db, userId, { updated_at: '2020-01-01T00:00:00.000Z' });
     await push(id);
     const evId = reminder(h.db, id).google_event_id;
-    await h.mockCtl('/__mock/events', { id: evId, event: { transparency: 'transparent' }, updated: new Date(Date.now() - 3600_000).toISOString() });
+    await h.mockCtl('/__mock/events', { id: evId, event: { summary: '✓ Pay rent' }, updated: new Date(Date.now() - 3600_000).toISOString() });
     h.db.prepare("UPDATE reminders SET title='Renamed locally', updated_at=? WHERE id=?").run(new Date().toISOString(), id);
     await push(id);
     const r = reminder(h.db, id);

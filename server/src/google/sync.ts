@@ -4,7 +4,7 @@ import { deleteEvent, getEvent, insertEvent, listEvents, patchEvent, type GEvent
 import type { GoogleCtx } from './config';
 import { GoogleHttpError, NetworkError, ReauthRequiredError } from './errors';
 import { fromEvent, toEvent, type ReminderRow } from './mapping';
-import { enqueueSync, pendingOps } from './outbox';
+import { enqueueSync, failedOps, pendingOps, retryFailedOps } from './outbox';
 import { getAccount, revokeTokens, type AccountRow } from './tokens';
 
 interface OutboxRow { id: number; user_id: string; reminder_id: string; op: 'upsert' | 'delete'; event_id: string | null; attempts: number; next_attempt_at: number }
@@ -14,7 +14,7 @@ const nowIso = () => new Date().toISOString();
 export function getSyncState(ctx: GoogleCtx, userId: string): SyncState {
   const a = getAccount(ctx, userId);
   if (!a) {
-    return { status: 'disconnected', connected: false, googleEmail: null, calendarId: 'primary', lastSyncAt: null, lastError: null, pendingOps: 0, conflictsResolved: 0 };
+    return { status: 'disconnected', connected: false, googleEmail: null, calendarId: 'primary', lastSyncAt: null, lastError: null, pendingOps: 0, conflictsResolved: 0, failedOps: 0 };
   }
   return {
     status: a.status as SyncStatus,
@@ -25,6 +25,7 @@ export function getSyncState(ctx: GoogleCtx, userId: string): SyncState {
     lastError: a.last_error,
     pendingOps: pendingOps(ctx.db, userId),
     conflictsResolved: a.conflicts_resolved,
+    failedOps: failedOps(ctx.db, userId),
   };
 }
 
@@ -185,7 +186,7 @@ async function push(ctx: GoogleCtx, userId: string, calendarId: string): Promise
   let lastErr: string | null = null;
   for (let pass = 0; pass < 3; pass++) {
     const rows = ctx.db
-      .prepare('SELECT * FROM outbox WHERE user_id = ? AND next_attempt_at <= ? ORDER BY id')
+      .prepare('SELECT * FROM outbox WHERE user_id = ? AND failed = 0 AND next_attempt_at <= ? ORDER BY id')
       .all(userId, Date.now()) as OutboxRow[];
     if (rows.length === 0) break;
     for (const row of rows) {
@@ -198,15 +199,15 @@ async function push(ctx: GoogleCtx, userId: string, calendarId: string): Promise
           if (isRetryableStatus(e.status, e.reasons)) {
             const attempts = row.attempts + 1;
             if (attempts >= MAX_ATTEMPTS) {
-              ctx.db.prepare('DELETE FROM outbox WHERE id = ?').run(row.id);
-              lastErr = `Gave up pushing reminder after ${MAX_ATTEMPTS} attempts: ${e.message}`;
+              ctx.db.prepare('UPDATE outbox SET attempts = ?, failed = 1, last_error = ? WHERE id = ?').run(attempts, e.message, row.id);
+              lastErr = `Gave up pushing a reminder after ${MAX_ATTEMPTS} attempts: ${e.message}`;
             } else {
               ctx.db.prepare('UPDATE outbox SET attempts = ?, next_attempt_at = ?, last_error = ? WHERE id = ?')
                 .run(attempts, Date.now() + backoffDelayMs(attempts, { retryAfterMs: e.retryAfterMs }), e.message, row.id);
             }
             throw e; // provider is throttling: stop this cycle, resume on a later tick
           }
-          ctx.db.prepare('DELETE FROM outbox WHERE id = ?').run(row.id); // permanent client error: drop, surface
+          ctx.db.prepare('UPDATE outbox SET failed = 1, last_error = ? WHERE id = ?').run(e.message, row.id); // permanent client error: keep visible as failed
           lastErr = `Google rejected a reminder update (${e.status}): ${e.message}`;
           continue;
         }
@@ -215,6 +216,14 @@ async function push(ctx: GoogleCtx, userId: string, calendarId: string): Promise
     }
   }
   return lastErr;
+}
+
+/** Persistent message for pushes that gave up; null when nothing is flagged failed. */
+function failedSummary(ctx: GoogleCtx, userId: string): string | null {
+  const failed = failedOps(ctx.db, userId);
+  if (failed === 0) return null;
+  const last = (ctx.db.prepare('SELECT last_error FROM outbox WHERE user_id = ? AND failed = 1 ORDER BY id DESC LIMIT 1').get(userId) as { last_error: string | null }).last_error;
+  return `${failed} change${failed === 1 ? '' : 's'} could not be pushed to Google (${last ?? 'unknown error'}). Use Sync now to retry.`;
 }
 
 // ---------------------------------------------------------------- orchestration
@@ -229,11 +238,13 @@ async function cycle(ctx: GoogleCtx, userId: string): Promise<SyncState> {
   try {
     const softErr = await push(ctx, userId, acct.calendar_id);
     await pull(ctx, userId);
-    ctx.db.prepare('UPDATE google_accounts SET status = ?, last_error = ?, last_sync_at = ? WHERE user_id = ?').run('idle', softErr, nowIso(), userId);
+    // Failed pushes stay flagged until the user edits the reminder or retries; they are never silently dropped.
+    const failedErr = failedSummary(ctx, userId);
+    ctx.db.prepare('UPDATE google_accounts SET status = ?, last_error = ?, last_sync_at = ? WHERE user_id = ?').run(failedErr ? 'error' : 'idle', softErr ?? failedErr, nowIso(), userId);
   } catch (e) {
     if (e instanceof ReauthRequiredError) { /* status already set by token layer */ }
     else if (e instanceof NetworkError) setStatus(ctx, userId, 'offline', e.message);
-    else setStatus(ctx, userId, 'error', (e as Error).message);
+    else setStatus(ctx, userId, 'error', failedSummary(ctx, userId) ?? (e as Error).message);
     ctx.log?.warn({ err: (e as Error).message }, 'google sync cycle failed');
   }
   return getSyncState(ctx, userId);
@@ -243,7 +254,8 @@ async function cycle(ctx: GoogleCtx, userId: string): Promise<SyncState> {
  * One sync cycle (push outbox, then pull). If a cycle is already running, a single follow-up cycle is queued
  * (so writes enqueued mid-run are not missed) and all concurrent callers share it.
  */
-export function runSync(ctx: GoogleCtx, userId: string): Promise<SyncState> {
+export function runSync(ctx: GoogleCtx, userId: string, opts: { retryFailed?: boolean } = {}): Promise<SyncState> {
+  if (opts.retryFailed) retryFailedOps(ctx.db, userId);
   const active = running.get(userId);
   if (!active) {
     const p: Promise<SyncState> = cycle(ctx, userId).finally(() => { if (running.get(userId) === p) running.delete(userId); });

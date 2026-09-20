@@ -63,7 +63,7 @@ export function miscRoutes(app: FastifyInstance, ctx: Ctx) {
 
 /** Stand-in /sync/* routes used only when WP-O's Google plugin is absent. */
 export function fallbackSyncRoutes(app: FastifyInstance) {
-  const state = (): SyncState => ({ status: 'disconnected', connected: false, googleEmail: null, calendarId: 'primary', lastSyncAt: null, lastError: null, pendingOps: 0, conflictsResolved: 0 });
+  const state = (): SyncState => ({ status: 'disconnected', connected: false, googleEmail: null, calendarId: 'primary', lastSyncAt: null, lastError: null, pendingOps: 0, conflictsResolved: 0, failedOps: 0 });
   app.get('/sync/state', async () => state());
   app.post('/sync/run', async () => state());
   app.post('/sync/disconnect', async () => state());

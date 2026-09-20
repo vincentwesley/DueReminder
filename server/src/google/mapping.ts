@@ -23,6 +23,9 @@ export interface ReminderRow {
 
 export const DONE_PREFIX = '✓ ';
 const EVENT_MINUTES = 15;
+/** Same limits as the reminder API, so remote events cannot store oversize text. */
+const MAX_TITLE = 500;
+const MAX_NOTES = 20_000;
 
 function tzParts(ts: number, tz: string) {
   const f = new Intl.DateTimeFormat('en-US', {
@@ -113,12 +116,13 @@ export function fromEvent(ev: GEvent, current: Pick<ReminderRow, 'timezone'>): R
   }
   const rr = (ev.recurrence ?? []).find((x) => /^RRULE:/i.test(x));
   return {
-    title: title || '(untitled)',
-    notes: ev.description ?? '',
+    title: (title || '(untitled)').slice(0, MAX_TITLE),
+    notes: (ev.description ?? '').slice(0, MAX_NOTES),
     due_at: due,
     all_day: allDay,
     timezone: safeTz(tz),
     rrule: rr ? rr.replace(/^RRULE:/i, '') : null,
-    done: doneByTitle || ev.transparency === 'transparent',
+    // Only our own title marker means done: "Show me as Free" in Google is an availability choice, not completion.
+    done: doneByTitle,
   };
 }

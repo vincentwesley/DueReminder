@@ -44,6 +44,7 @@ export default function SyncPanel() {
             <dt>Account</dt><dd>{sync.googleEmail ?? 'Unknown'}</dd>
             <dt>Last sync</dt><dd>{relativeTime(sync.lastSyncAt)}</dd>
             <dt>Waiting to upload</dt><dd>{sync.pendingOps + pending}</dd>
+            {sync.failedOps > 0 && (<><dt>Failed to upload</dt><dd data-testid="sync-failed-ops">{sync.failedOps}</dd></>)}
             <dt>Conflicts resolved</dt><dd>{sync.conflictsResolved}</dd>
           </dl>
         ) : (

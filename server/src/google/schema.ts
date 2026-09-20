@@ -37,4 +37,7 @@ export function migrate(db: Database): void {
       user_id TEXT
     );
   `);
+  // Rows that exhausted their retries stay visible (failed = 1) instead of being dropped.
+  const cols = (db.prepare('PRAGMA table_info(outbox)').all() as { name: string }[]).map((c) => c.name);
+  if (!cols.includes('failed')) db.exec('ALTER TABLE outbox ADD COLUMN failed INTEGER NOT NULL DEFAULT 0');
 }

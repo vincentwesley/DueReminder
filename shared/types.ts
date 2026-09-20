@@ -42,6 +42,7 @@ export interface SyncState {
   lastError: string | null;
   pendingOps: number;               // outbox size
   conflictsResolved: number;
+  failedOps: number;                // pushes that exhausted their retries; kept until retried
 }
 
 export interface ApiError { error: { code: 'bad_request' | 'unauthorized' | 'not_found' | 'conflict' | 'rate_limited' | 'internal'; message: string; details?: unknown } }

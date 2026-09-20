@@ -98,7 +98,7 @@ export async function registerGoogle(app: FastifyInstance, deps: GoogleDeps): Pr
   });
   route('POST', '/api/sync/run', async (req, reply) => {
     const uid = guarded(req, reply);
-    return uid ? runSync(ctx, uid) : reply;
+    return uid ? runSync(ctx, uid, { retryFailed: true }) : reply;
   });
   route('POST', '/api/sync/disconnect', async (req, reply) => {
     const uid = guarded(req, reply);
