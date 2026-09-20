@@ -24,12 +24,12 @@ export interface AppConfig {
   trustProxy: boolean;
 }
 
-const WEAK_SECRET = /change[-_ ]?me|dev-insecure|placeholder|your[-_ ]secret|replace[-_ ]me/i;
+const WEAK_SECRET = /change[-_ ]?me|dev-insecure|example[-_ ]value|your[-_ ]secret|replace[-_ ]me/i;
 
 /** Why a SESSION_SECRET is unacceptable for production, or null when it is fine. */
 export function sessionSecretProblem(secret: string | undefined | null): string | null {
   if (!secret) return 'is not set';
-  if (WEAK_SECRET.test(secret)) return 'looks like a placeholder value';
+  if (WEAK_SECRET.test(secret)) return 'looks like an example value';
   if (secret.length < 32) return 'is shorter than 32 characters';
   return null;
 }

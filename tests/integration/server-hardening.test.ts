@@ -101,3 +101,28 @@ describe('abuse controls', () => {
     await app.close();
   });
 });
+
+describe('idempotency keys (L1)', () => {
+  it('replays the same request but not a different request that reuses the key', async () => {
+    const app = await buildApp({ dbPath: ':memory:', demoMode: true, logger: false });
+    const login = await app.inject({ method: 'POST', url: '/api/demo/login', headers: H });
+    const headers = { ...H, cookie: `rs_session=${cookieOf(login.headers['set-cookie'], 'rs_session')}`, 'idempotency-key': 'abc' };
+    const a1 = await app.inject({ method: 'POST', url: '/api/reminders', headers, payload: { title: 'one' } });
+    const a2 = await app.inject({ method: 'POST', url: '/api/reminders', headers, payload: { title: 'one' } });
+    expect(a2.headers['idempotent-replay']).toBe('true');
+    expect(a2.json().id).toBe(a1.json().id);
+    const b = await app.inject({ method: 'POST', url: '/api/reminders', headers, payload: { title: 'two' } });
+    expect(b.headers['idempotent-replay']).toBeUndefined();
+    expect(b.json().title).toBe('two');
+    await app.close();
+  });
+
+  it('does not cache client errors', async () => {
+    const app = await buildApp({ dbPath: ':memory:', demoMode: true, logger: false });
+    const login = await app.inject({ method: 'POST', url: '/api/demo/login', headers: H });
+    const headers = { ...H, cookie: `rs_session=${cookieOf(login.headers['set-cookie'], 'rs_session')}`, 'idempotency-key': 'bad' };
+    expect((await app.inject({ method: 'POST', url: '/api/reminders', headers, payload: { title: '' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/reminders', headers, payload: { title: '' } })).headers['idempotent-replay']).toBeUndefined();
+    await app.close();
+  });
+});

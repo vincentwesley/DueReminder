@@ -1,4 +1,4 @@
-// Zod schemas mirroring shared/types.ts (WP-B).
+// Zod schemas mirroring shared/types.ts.
 import { z } from 'zod';
 
 export const isoDateTime = z.iso.datetime({ offset: true });

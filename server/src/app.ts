@@ -136,8 +136,14 @@ export async function buildApp(overrides: Partial<AppConfig> = {}): Promise<Fast
   });
 
   // Idempotency-Key replay for offline mutation queue (24h)
-  const idemKey = (req: { headers: Record<string, unknown>; user: { id: string } | null }) =>
-    typeof req.headers['idempotency-key'] === 'string' && req.user && req.headers['idempotency-key'] ? `${req.user.id}:${req.headers['idempotency-key']}` : null;
+  // Scoped to user, method, URL and body so reusing a key on a different request never replays the wrong response.
+  const idemKey = (req: { method: string; url: string; body?: unknown; headers: Record<string, unknown>; user: { id: string } | null }) => {
+    const k = req.headers['idempotency-key'];
+    if (typeof k !== 'string' || !k || !req.user) return null;
+    const fingerprint = createHash('sha256').update(`${req.method} ${req.url.split('?')[0]}
+${JSON.stringify(req.body ?? null)}`).digest('hex');
+    return `${req.user.id}:${k}:${fingerprint}`;
+  };
   app.addHook('preHandler', async (req, reply) => {
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return;
     const key = idemKey(req as never);
@@ -151,7 +157,7 @@ export async function buildApp(overrides: Partial<AppConfig> = {}): Promise<Fast
     return reply.code(status).send(body || undefined);
   });
   app.addHook('onSend', async (req, reply, payload) => {
-    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || reply.statusCode >= 500 || reply.getHeader('idempotent-replay')) return payload;
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || reply.statusCode >= 400 || reply.getHeader('idempotent-replay')) return payload;
     const key = idemKey(req as never);
     if (key && (typeof payload === 'string' || payload == null)) {
       db.prepare('INSERT OR IGNORE INTO idempotency_keys (key, user_id, response_json, created_at) VALUES (?, ?, ?, ?)')

@@ -18,7 +18,7 @@ export function getUserById(db: Db, id: string): User | null {
   return r ? toUser(r) : null;
 }
 
-/** Upsert a user by google_sub (or email). Exported for WP-O's OAuth callback. */
+/** Upsert a user by google_sub (or email). Exported for reuse by the OAuth callback. */
 export function upsertUser(db: Db, u: { email: string; name?: string; googleSub?: string | null; pictureUrl?: string | null; demo?: boolean }): User {
   const ex = db.prepare('SELECT id FROM users WHERE (google_sub IS NOT NULL AND google_sub = ?) OR email = ?').get(u.googleSub ?? null, u.email) as { id: string } | undefined;
   if (ex) {
@@ -32,7 +32,7 @@ export function upsertUser(db: Db, u: { email: string; name?: string; googleSub?
   return getUserById(db, id)!;
 }
 
-/** Creates a session row and sets the rs_session cookie. Exported for WP-O's OAuth callback. */
+/** Creates a session row and sets the rs_session cookie. Exported for reuse by the OAuth callback. */
 export function startSession(db: Db, config: AppConfig, reply: FastifyReply, userId: string, req?: FastifyRequest): void {
   // Rotate: drop the session the browser arrived with, and keep the number of live sessions per user bounded.
   const prior = req?.cookies?.[SESSION_COOKIE];
@@ -61,7 +61,7 @@ export function userFromRequest(db: Db, req: FastifyRequest): User | null {
 
 declare module 'fastify' {
   interface FastifyRequest {
-    /** Authenticated user (set by the global auth hook); null when anonymous. WP-O routes may rely on this. */
+    /** Authenticated user (set by the global auth hook); null when anonymous. */
     user: User | null;
   }
 }

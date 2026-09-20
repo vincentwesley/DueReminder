@@ -36,9 +36,10 @@ CREATE TABLE IF NOT EXISTS reminder_tags (
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   key TEXT PRIMARY KEY, user_id TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_idempotency_created ON idempotency_keys(created_at);
 `;
 
-/** Opens the DB and applies core migrations. WP-O's google/schema.ts migrate(db) is called by buildApp afterwards. */
+/** Opens the DB and applies core migrations. the Google tables are created by google/schema.ts migrate(db), which buildApp calls afterwards. */
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);

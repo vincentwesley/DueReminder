@@ -26,7 +26,7 @@ Scope requested: `openid email profile https://www.googleapis.com/auth/calendar.
    GOOGLE_API_BASE=https://www.googleapis.com
    OAUTH_REDIRECT_URI=http://localhost:4000/api/auth/callback
    ```
-   Changing `SESSION_SECRET` later makes stored tokens undecryptable; you would have to reconnect.
+   The server refuses to start in production, or with `DEMO_MODE=0`, if `SESSION_SECRET` is missing, shorter than 32 characters or an example value. Changing it later makes stored tokens undecryptable; the account then shows "reconnect needed" and you reconnect.
 6. **Switch demo mode off.** Set `DEMO_MODE=0` in `.env`. The server refuses to start with `DEMO_MODE=1` while `GOOGLE_AUTH_BASE` points at real Google, so demo data can never talk to the real API.
 7. **Restart** (`npm run dev`) and open <http://localhost:5173>. Click Connect Google (start URL: `/api/auth/google/start`), pick your account, and approve the calendar permission. If you see "Google hasn't verified this app", choose Advanced > Continue (expected for your own Testing-mode project).
 8. **Verify.** In the app, toggle "Sync to Google Calendar" on a reminder that has a due date. A 15-minute event (all-day if the reminder is all-day) appears in your primary calendar within a couple of seconds; edit the event in Google Calendar and click Sync now to see the change locally.
@@ -40,6 +40,7 @@ Scope requested: `openid email profile https://www.googleapis.com/auth/calendar.
 | Status "reauth required" | Refresh token revoked or expired (Testing mode: 7 days). Click Connect Google again. |
 | No refresh token | The app requests `access_type=offline&prompt=consent`; if you removed a previous grant at <https://myaccount.google.com/permissions>, reconnect. |
 | Sync shows "offline" | Network to Google unreachable; queued changes are retried automatically and when the browser comes online. |
+| "N changes could not be pushed to Google" | A push failed permanently or exhausted its 8 retries. It stays flagged; fix the cause and press Sync now, or edit the reminder to re-queue it. |
 | 429 / rate limit | Handled automatically with exponential backoff (1s doubling, 5 min cap, honours `Retry-After`). |
 
 ## Going back to the demo

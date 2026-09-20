@@ -63,8 +63,10 @@ To deploy with real Google Calendar:
    - `GOOGLE_AUTH_BASE=https://accounts.google.com`
    - `GOOGLE_API_BASE=https://www.googleapis.com`
    - `OAUTH_REDIRECT_URI=https://yourdomain.com/api/auth/callback`
-   - `SESSION_SECRET=<32+ random characters>`
+   - `SESSION_SECRET=<32+ random characters>` (required: the server refuses to start in production, or with `DEMO_MODE=0`, without it)
    - `DEMO_MODE=0`
+   - `NODE_ENV=production` (demo mode is refused in production)
+   - `TRUST_PROXY=1` if you run behind a reverse proxy
 3. Deploy the app and database
 
 ## Production Build and Start
@@ -153,8 +155,10 @@ GOOGLE_CLIENT_SECRET=your-client-secret
 GOOGLE_AUTH_BASE=http://localhost:4010      # Demo
 GOOGLE_API_BASE=http://localhost:4010       # Demo
 
-# Session encryption
-SESSION_SECRET=your-32+-character-secret
+# Session encryption. Required in production and when DEMO_MODE=0 (32+ random characters,
+# generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))").
+# If empty in demo/dev, a random secret is generated into data/.session-secret.
+SESSION_SECRET=
 
 # Ports
 WEB_PORT=5173
@@ -185,6 +189,9 @@ API_PORT=3001
 MOCK_GOOGLE_PORT=3002
 ```
 Then restart `npm run dev`.
+
+### "SESSION_SECRET is not set / looks like an example value"
+The server will not start in production, or with `DEMO_MODE=0`, without a strong secret. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Changing it later makes stored Google tokens undecryptable, so the account shows "Reconnect needed".
 
 ### "DEMO_MODE=1 but GOOGLE_AUTH_BASE points at real Google"
 The server refuses this for safety. Either:

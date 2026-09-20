@@ -6,8 +6,8 @@ import type { Db } from '../db/index.js';
 import type { AppConfig } from '../config.js';
 
 /**
- * Integration points for WP-O's Google sync. Every member is optional: the backend works without it.
- * WP-O supplies them from server/src/google/{index,outbox,schema}.ts (see loadGoogle).
+ * Integration points for the Google sync module. Every member is optional: the backend works without it.
+ * The module supplies them from server/src/google/{index,outbox,schema}.ts (see loadGoogle).
  */
 export interface SyncHooks {
   /** Called after every write touching a calendarSync reminder (or one that was synced before). */

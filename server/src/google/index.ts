@@ -15,7 +15,7 @@ export { getSyncState, runSync } from './sync';
 export { backoffDelayMs } from './backoff';
 export { codeChallengeS256, generateCodeVerifier } from './pkce';
 
-/** Called by WP-B after demo seeding: pre-link the mock Google account (PLAN.md section 9). Opt-in: set DEMO_PRELINK=1. Off by default so the UI's 'Connect Google Calendar' flow is testable after demo login. */
+/** Called after demo seeding: pre-link the mock Google account (PLAN.md section 9). Opt-in: set DEMO_PRELINK=1. Off by default so the UI's 'Connect Google Calendar' flow is testable after demo login. */
 export async function onDemoSeed(db: Database, userId: string): Promise<void> {
   const api = current;
   if (!api || !api.ctx.config.demoMode || process.env.DEMO_PRELINK !== '1') return;

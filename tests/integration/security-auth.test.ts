@@ -10,11 +10,11 @@ import { cookieOf, makeHarness } from './google-helpers';
 const STRONG = 'a'.repeat(8) + 'Zk3'.repeat(8);
 
 describe('SESSION_SECRET enforcement (H1)', () => {
-  it('flags unset, short and placeholder secrets', () => {
+  it('flags unset, short and example secrets', () => {
     expect(sessionSecretProblem(undefined)).toMatch(/not set/);
     expect(sessionSecretProblem('short')).toMatch(/shorter/);
-    expect(sessionSecretProblem('change-me-to-32+-random-chars')).toMatch(/placeholder/);
-    expect(sessionSecretProblem('dev-insecure-session-secret-change-me')).toMatch(/placeholder/);
+    expect(sessionSecretProblem('change-me-to-32+-random-chars')).toMatch(/example/);
+    expect(sessionSecretProblem('dev-insecure-session-secret-change-me')).toMatch(/example/);
     expect(sessionSecretProblem(STRONG)).toBeNull();
   });
   it('refuses to start in production without a strong secret', () => {

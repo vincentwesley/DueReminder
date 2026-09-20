@@ -141,8 +141,9 @@ test.describe('recurrence', () => {
     await openApp(page, '#/overdue');
     await expect(item(page, 'E2E daily habit')).toBeVisible();
     await item(page, 'E2E daily habit').getByTestId('complete-btn').click();
-    // moved out of Overdue (next occurrence is today 09:00Z or later), still open
-    await expect.poll(async () => (await api.get(r.id)).dueAt).toBe(isoDaysFromNow(0, 9));
+    // advances to the first 09:00Z occurrence after now (today's if still ahead, otherwise tomorrow's), still open
+    const expected = Date.parse(isoDaysFromNow(0, 9)) > Date.now() ? isoDaysFromNow(0, 9) : isoDaysFromNow(1, 9);
+    await expect.poll(async () => (await api.get(r.id)).dueAt).toBe(expected);
     const after = await api.get(r.id);
     expect(after.status).toBe('open');
     expect(after.completedAt).toBeNull();
@@ -256,5 +257,18 @@ test.describe('theme and mobile', () => {
       await page.getByTestId('editor-save').tap();
       await expect(item(page, 'E2E mobile fab')).toBeVisible();
     });
+  });
+});
+
+test.describe('dialog accessibility', () => {
+  test('an open dialog has a single banner landmark and an inert page behind it', async ({ signedIn: page }) => {
+    await openApp(page);
+    await page.getByTestId('new-reminder').click();
+    await expect(page.getByTestId('editor')).toBeVisible();
+    await expect(page.getByRole('dialog').locator('header')).toHaveCount(0);
+    await expect(page.locator('#root')).toHaveAttribute('inert', '');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('editor')).toHaveCount(0);
+    await expect(page.locator('#root')).not.toHaveAttribute('inert', '');
   });
 });

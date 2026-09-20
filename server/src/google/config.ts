@@ -27,7 +27,7 @@ export interface GoogleConfig {
   /** Verify id_token signature via JWKS (real Google only). */
   verifyIdTokenSignature: boolean;
   requestTimeoutMs: number;
-  /** Optional hook so WP-B can create the default list / seed data for a newly created user. */
+  /** Optional hook to create the default list or seed data for a newly created user. */
   onUserCreated?: (db: Database, userId: string) => void;
   fetch?: typeof fetch;
 }
@@ -37,7 +37,7 @@ const trimSlash = (s: string) => s.replace(/\/+$/, '');
 /** Merge explicit config over environment defaults. Accepts extra keys (the app config may be a superset). */
 export function resolveGoogleConfig(partial: Partial<GoogleConfig> | Record<string, unknown> = {}, env: NodeJS.ProcessEnv = process.env): GoogleConfig {
   const raw = partial as Partial<GoogleConfig> & Record<string, unknown>;
-  // Accept WP-B's AppConfig naming (googleClientId, oauthRedirectUri, ...) as well as our own.
+  // Accept the app config naming (googleClientId, oauthRedirectUri, ...) as well as the Google module's own.
   const p: Partial<GoogleConfig> = {
     ...raw,
     clientId: raw.clientId ?? (raw.googleClientId as string | undefined),

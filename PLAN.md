@@ -118,7 +118,7 @@ Interface agreements:
 - Order: B, O, F start together; T begins with unit tests (quick-add, recurrence, backoff, PKCE), then integration once B+O land; D last.
 
 ## 12. Dev and scripts
-`npm run dev` (currently a placeholder; WP-B implements `scripts/dev.mjs`) starts mock-google (4010), API (4000, `tsx watch`), and Vite (5173) via concurrently, loading `.env`. `npm test` = Vitest; `npm run test:e2e` = Playwright (starts stack with DEMO_MODE=1, in-memory DB, mock Google).
+`npm run dev` (implemented in `scripts/dev.mjs`) starts mock-google (4010), API (4000, `tsx watch`), and Vite (5173) via concurrently, loading `.env`. `npm test` = Vitest; `npm run test:e2e` = Playwright (starts stack with DEMO_MODE=1, in-memory DB, mock Google).
 Environment note: global `~/.npmrc` has a dead proxy; project `.npmrc` (gitignored) overrides it. Recreate with `proxy=null` / `https-proxy=null` if missing. Node 20.17 constrains versions (see DECISIONS.md).
 
 ## 13. Definition of done

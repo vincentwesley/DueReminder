@@ -151,7 +151,7 @@ A reminder with `calendarSync=true` and a `dueAt`:
 - **Links**: Stored in:
   - Local: `reminder.google_event_id`, `reminder.google_etag`
   - Google: `extendedProperties.private.reminderId` (lookup key)
-- **Done**: Prefixes title with a check mark (✓) and sets `transparency: transparent`
+- **Done**: Prefixes title with a check mark (✓) and sets `transparency: transparent`. Only the title marker is read back as completion; a user switching an event to "Free" in Google does not complete the reminder. Remote titles and notes are clamped to the API limits (500 and 20000 characters).
 
 ### Push (local → Google)
 
@@ -179,6 +179,7 @@ A reminder with `calendarSync=true` and a `dueAt`:
 ### Retry & Error Handling
 
 - **Rate limits** (403, 429) and **5xx**: Exponential backoff (1s base, ×2, 5 min cap, max 8 attempts, honour `Retry-After`)
+- **Exhausted or permanently rejected pushes** are never dropped: the outbox row is kept with `failed = 1`, the sync state reports `status: error`, `failedOps` and a persistent message, and the row is retried by **Sync now** or re-queued by the next edit of that reminder
 - **401 Unauthorized**: Refresh token once, then `reauth_required`
 - **Network offline**: Keep outbox, retry on browser `online` event
 - **Status field**: `idle`, `syncing`, `offline`, `error`, `reauth_required`
@@ -197,8 +198,10 @@ A reminder with `calendarSync=true` and a `dueAt`:
    - UI updates with server's response
 
 3. **Concurrent offline & online**:
-   - Older local changes (based on `updatedAt`) lose if server has newer version
-   - UI shows conflict message; user can retry or discard
+   - Each queued PATCH is rewritten with the latest version the server reported during replay, so consecutive offline edits of one reminder all apply
+   - On `409` the PATCH is rebased onto the returned latest version and resent with a fresh idempotency key (the queued fields win, and the user is told); it is dropped only after repeated conflicts
+   - `401`, `429` and `5xx` stop replay and keep every queued change (401 also asks the user to sign in again; 429/5xx retry after 30s). Only other 4xx errors drop an operation, with a toast
+   - Signing out with unsynced changes asks for confirmation
 
 ## Demo Mode
 
@@ -217,7 +220,12 @@ The mock server implements OAuth (with `?auto=1` auto-approve) and Calendar v3 s
 
 ## Session & Security
 
-- **Session cookie**: `rs_session`, HttpOnly, SameSite=Lax, Secure (prod only)
+- **Session cookie**: `rs_session`, HttpOnly, SameSite=Lax, Secure (prod only). The session id is rotated on every login (demo and Google), at most 10 sessions are kept per user, and expired sessions and OAuth states are pruned every 10 minutes
+- **Startup checks**: with `NODE_ENV=production` or `DEMO_MODE=0` the server refuses to start unless `SESSION_SECRET` is 32+ characters and not an example value. `DEMO_MODE=1` is refused in production, and `DEMO_MODE=0` requires `GOOGLE_AUTH_BASE=https://accounts.google.com`. In development without a secret, a random one is generated into `data/.session-secret` (gitignored)
+- **ID tokens**: signature (JWKS), issuer, audience, expiry and nonce are always verified. Only the local mock in demo mode skips the signature. Accounts are matched by Google subject, or by email only when `email_verified` is true and the local account is not bound to another subject
+- **Headers**: CSP (`default-src 'self'`, inline scripts allowed only by hash, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, HSTS in production, `no-store` on API responses, immutable caching only for hashed assets
+- **Rate limiting**: `/api/auth/*` (login, callback) and `/api/demo/*` are limited per client IP (`AUTH_RATE_LIMIT`, default 30 per minute; set `TRUST_PROXY=1` behind a reverse proxy so the real client IP is used)
+- **Idempotency keys** are scoped to user, method, path and body, and only successful responses are cached
 - **CSRF**: State-changing calls require `X-Requested-With: fetch` header
 - **Token encryption**: AES-256-GCM, key derived from `SESSION_SECRET` (scrypt)
 - **Token storage**: Never exposed to client; only HttpOnly cookie sent

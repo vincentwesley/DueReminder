@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-/** Creates the Google-related tables (idempotent). WP-B calls this at startup after its own migrations. */
+/** Creates the Google-related tables (idempotent). Called at startup after the core migrations. */
 export function migrate(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS google_accounts (

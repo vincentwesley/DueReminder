@@ -61,7 +61,7 @@ export function miscRoutes(app: FastifyInstance, ctx: Ctx) {
   app.delete('/tags/:id', async (req, reply) => { deleteTag(ctx, uid(req), idOf(req)); return reply.code(204).send(); });
 }
 
-/** Stand-in /sync/* routes used only when WP-O's Google plugin is absent. */
+/** Stand-in /sync/* routes used only when the Google plugin is absent. */
 export function fallbackSyncRoutes(app: FastifyInstance) {
   const state = (): SyncState => ({ status: 'disconnected', connected: false, googleEmail: null, calendarId: 'primary', lastSyncAt: null, lastError: null, pendingOps: 0, conflictsResolved: 0, failedOps: 0 });
   app.get('/sync/state', async () => state());

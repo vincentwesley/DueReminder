@@ -1,7 +1,16 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+let openDialogs = 0;
+/** Makes the page behind a modal dialog unreachable for keyboard and assistive tech (aria-modal alone is not enough everywhere). */
+function setBackgroundInert(on: boolean) {
+  openDialogs += on ? 1 : -1;
+  const root = document.getElementById('root');
+  if (root) root.inert = openDialogs > 0;
+}
 
 export function Dialog({ label, onClose, children, side = false, testId }: { label: string; onClose: () => void; children: ReactNode; side?: boolean; testId?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -13,6 +22,7 @@ export function Dialog({ label, onClose, children, side = false, testId }: { lab
     const el = ref.current;
     const first = el?.querySelector<HTMLElement>('[data-autofocus]') ?? el?.querySelector<HTMLElement>(FOCUSABLE);
     first?.focus();
+    setBackgroundInert(true);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopPropagation(); onCloseRef.current(); return; }
       if (e.key !== 'Tab' || !el) return;
@@ -23,18 +33,23 @@ export function Dialog({ label, onClose, children, side = false, testId }: { lab
       else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
     };
     document.addEventListener('keydown', onKey, true);
-    return () => { document.removeEventListener('keydown', onKey, true); prev?.focus?.(); };
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      setBackgroundInert(false);
+      prev?.focus?.();
+    };
   }, []);
 
-  return (
+  return createPortal(
     <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={ref} className={`dialog${side ? ' dialog-side' : ''}`} role="dialog" aria-modal="true" aria-label={label} data-testid={testId}>
-        <header className="dialog-head">
+        <div className="dialog-head">
           <h2>{label}</h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close dialog" data-testid="dialog-close"><Icon name="close" /></button>
-        </header>
+        </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
