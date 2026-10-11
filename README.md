@@ -204,3 +204,13 @@ The server refuses this for safety. Either:
 - **Architecture & Design Decisions**: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 - **Planning & API Contract**: [PLAN.md](./PLAN.md)
 - **Tech Stack Justification**: [DECISIONS.md](./DECISIONS.md)
+
+## Data, network and privacy
+
+- **Local data**: reminders are stored in a local SQLite file (`DB_PATH`, default `data/reminders.db`) and in the browser's IndexedDB. `data/` is gitignored.
+- **Network calls**: in demo mode (default) everything stays on `localhost`; no secrets are needed. With `DEMO_MODE=0` the server talks only to Google (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`) for OAuth and Calendar sync. No analytics or other third-party hosts.
+- **Secrets**: put credentials in `.env` only and never commit it (it is gitignored; `.env.example` holds placeholders). Google OAuth setup: [SETUP_GOOGLE.md](./SETUP_GOOGLE.md).
+
+## License
+
+MIT, see [LICENSE](./LICENSE). Copyright (c) 2026 Vincent Wesley. Provided "as is", without warranty of any kind; use at your own risk. See [SECURITY.md](./SECURITY.md) to report a vulnerability.
