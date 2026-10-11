@@ -1,9 +1,14 @@
 version: 2
+# Monthly + grouped keeps PR noise low; GitHub security updates are separate and still arrive immediately.
 updates:
   - package-ecosystem: npm
     directory: /
-    schedule: { interval: weekly }
-    open-pull-requests-limit: 5
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch: { update-types: [minor, patch] }
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
+    groups:
+      actions: { patterns: ["*"] }
