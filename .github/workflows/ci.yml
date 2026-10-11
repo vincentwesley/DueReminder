@@ -18,7 +18,7 @@ jobs:
         run: |
           bad=$(git log --format='%an|%ae|%cn|%ce' | tr '|' '\n' | sort -u | grep -vE '^(vincentwesley|Vincent Wesley|GitHub|github-actions\[bot\]|dependabot\[bot\]|221810966\+vincentwesley@users\.noreply\.github\.com|noreply@github\.com|[0-9]+\+(github-actions|dependabot)\[bot\]@users\.noreply\.github\.com)$' || true)
           if [ -n "$bad" ]; then echo "Unexpected commit identities:"; echo "$bad"; exit 1; fi
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
