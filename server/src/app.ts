@@ -185,8 +185,15 @@ async function serveStatic(c: C): Promise<Response> {
   if (!assets) return json(c, 404, 'not_found', 'Route not found');
   const { pathname } = new URL(c.req.url);
   try { decodeURIComponent(pathname); } catch { return json(c, 400, 'bad_request', 'Malformed URL'); }
-  const res = await assets.fetch(c.req.raw);
-  if (!res.ok) return json(c, 404, 'not_found', 'Route not found');
+  let res = await assets.fetch(c.req.raw);
+  if (res.status === 304 && !pathname.startsWith('/assets/')) {
+    // A 304 has no body to hash for the CSP (and would overwrite the cached one), so refetch unconditionally.
+    const h = new Headers(c.req.raw.headers);
+    h.delete('if-none-match');
+    h.delete('if-modified-since');
+    res = await assets.fetch(new Request(c.req.raw, { headers: h }));
+  }
+  if (res.status === 404) return json(c, 404, 'not_found', 'Route not found');
   const headers = new Headers(res.headers);
   headers.set('cache-control', pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache');
   if ((headers.get('content-type') ?? '').startsWith('text/html')) {

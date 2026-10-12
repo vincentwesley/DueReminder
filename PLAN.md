@@ -5,29 +5,32 @@ Responsive PWA reminder app (lists, tags, priorities, due dates, recurrence, nat
 
 ## 2. Architecture
 ```
-Browser PWA (React, IndexedDB cache, SW) --/api (cookie session)--> Fastify API (:4000, SQLite)
-                                                                      |  OAuth + Calendar HTTP
+Browser PWA (React, IndexedDB cache, SW) --/api (cookie session)--> Cloudflare Worker (Hono) <--> D1 (SQLite)
+                                                                      |  cron (every minute): Google sync
+                                                                      |  OAuth + Calendar HTTP (fetch)
                                                                       v
-                                                   Google (real)  OR  mock-google (:4010)
+                                                   Google (real)  OR  mock-google (:4010, Node, dev/tests only)
 ```
-Vite dev server (:5173) proxies `/api` to :4000. In production the API serves `web/dist`. Google base URLs come from env (`GOOGLE_AUTH_BASE`, `GOOGLE_API_BASE`), so mock <-> real is config only.
+One Worker serves `/api/*` (Hono) and the built UI (`web/dist` via the Workers Assets binding, SPA fallback; the Worker runs first so it can add CSP/security headers). In dev, `wrangler dev` (:4000, local D1) is proxied by the Vite dev server (:5173) at `/api`. Google base URLs come from vars (`GOOGLE_AUTH_BASE`, `GOOGLE_API_BASE`), so mock <-> real is config only. The Worker exports `fetch` and `scheduled`; there is no long-lived process, so syncing is cron-driven (plus a `waitUntil` kick after local writes) and the client refetches on focus and every 60s instead of holding an SSE stream.
 
 ## 3. Folder layout and ownership
 ```
 shared/types.ts                      contract types (planner-owned; change only with PLAN.md update)
 shared/schemas.ts                    zod schemas mirroring types (WP-B)
-server/src/                          WP-B backend (index.ts, app.ts, db/, routes/, services/, nlp/)
-server/src/google/                   WP-O oauth, Google client, sync engine
-mock-google/                         WP-O mock server
+migrations/*.sql                     D1 schema (wrangler d1 migrations)
+wrangler.jsonc                       Worker, D1 binding (placeholder id), assets, cron, production vars
+server/src/                          WP-B backend (worker.ts, app.ts, scheduled.ts, config.ts, db/, routes/, services/, nlp/)
+server/src/google/                   WP-O oauth, Google client, sync engine (WebCrypto token crypto)
+mock-google/                         WP-O mock server (Node, Fastify; dev tool, unchanged by the Workers port)
 web/                                 WP-F frontend (index.html, vite.config.ts, src/, public/)
-tests/unit, tests/integration        WP-T
+tests/unit, tests/integration        WP-T (integration = Hono app in Node + real local D1 + mock-google)
 e2e/, playwright.config.ts, vitest.config.ts   WP-T
 docs/, README.md                     WP-D
-scripts/dev.mjs                      WP-B (one-command dev)
+scripts/dev.mjs, scripts/e2e-server.mjs   dev stack and the Playwright app server
 ```
-Root files (package.json, tsconfig.json, .env.example) belong to the orchestrator; agents needing a new dependency request it or add only their own deps and report it.
+Root files (package.json, tsconfig.json, .dev.vars.example) belong to the orchestrator; agents needing a new dependency request it or add only their own deps and report it.
 
-## 4. Data model (SQLite; mirrors shared/types.ts)
+## 4. Data model (D1 / SQLite; schema in migrations/0001_init.sql; mirrors shared/types.ts)
 - users(id, email UNIQUE, google_sub, name, picture_url, demo INT, created_at)
 - sessions(id, user_id, expires_at)
 - lists(id, user_id, name, color, sort_order, created_at, updated_at, deleted_at)
@@ -38,10 +41,10 @@ Root files (package.json, tsconfig.json, .env.example) belong to the orchestrato
 - outbox(id, user_id, reminder_id, op 'upsert'|'delete', attempts, next_attempt_at, last_error, created_at)
 - oauth_states(state PK, code_verifier, created_at) - 10 min TTL, single use
 - idempotency_keys(key PK, user_id, response_json, created_at) - 24h TTL
-- Tokens encrypted at rest with AES-256-GCM, key derived from SESSION_SECRET (scrypt). Soft deletes so deletions sync.
+- Tokens encrypted at rest with AES-256-GCM (WebCrypto), key derived from SESSION_SECRET with HKDF-SHA-256. Soft deletes so deletions sync.
 - Recurring reminders: one row holds the RRULE; completing advances `dueAt` to the next occurrence (server computes via rrule). `status=done` and `completedAt` are set only when the series has no further occurrence.
 
-## 5. API contract (JSON, prefix `/api`, cookie session `rs_session`, errors = `ApiError`)
+## 5. API contract (JSON, prefix `/api`, cookie session `__Host-rs_session`, errors = `ApiError`)
 | Method Path | Request | Response |
 |---|---|---|
 | GET /health | - | `{ok:true, demo:boolean}` |
@@ -70,7 +73,7 @@ Root files (package.json, tsconfig.json, .env.example) belong to the orchestrato
 
 Quick-add grammar: chrono-node for dates ("tomorrow 5pm"), "every monday 9am" / "daily" / "weekly" mapped to RRULE, `!1..!3` or `!high|!med|!low` priority, `#tag`, `@list`.
 Offline: client writes go to an IndexedDB mutation queue and replay with an `Idempotency-Key` header (server dedupes 24h); UI shows an offline badge.
-Session cookie: HttpOnly, SameSite=Lax, Secure in prod. CSRF: state-changing calls require header `X-Requested-With: fetch`.
+Session cookie: `__Host-rs_session` (HttpOnly, Secure, SameSite=Lax, Path=/); local http dev sets `INSECURE_COOKIES=1` for plain `rs_session`. CSRF: state-changing calls require header `X-Requested-With: fetch`.
 List defaults: every user has a default list named "Inbox" (created on first login).
 
 ## 6. OAuth flow (Authorization Code + PKCE)
@@ -84,7 +87,7 @@ Scopes: `openid email profile https://www.googleapis.com/auth/calendar.events`; 
 - Mapping: reminder with `calendarSync && dueAt` <-> event on `calendarId` (default `primary`). `extendedProperties.private.reminderId` links events; `googleEventId` + `googleEtag` stored. Timed reminder = 15-minute event; allDay = all-day event. RRULE -> `recurrence: ["RRULE:..."]`. Done = title prefixed with a check mark and `transparency: transparent`.
 - Push (local -> Google): each write to a synced reminder enqueues an outbox row; worker drains it: insert/patch (`If-Match: etag`), delete for tombstones. Idempotent via reminderId.
 - Pull (Google -> local): `events.list` with `syncToken`; first run is a full list (timeMin 30 days ago), then stores `nextSyncToken`. HTTP 410 -> discard token, full resync. Cancelled events -> soft-delete local. Events lacking reminderId are ignored in v1.
-- Triggers: `POST /sync/run`, after local writes (debounced 2s), and a 60s poll while a session is active. No webhooks (no public URL).
+- Triggers: `POST /sync/run`, after local writes (`waitUntil`), and the cron (every minute; users with a live session, oldest-synced first, bounded batch per run). No webhooks.
 - Conflicts: last-writer-wins comparing Google `updated` vs local `updatedAt`; on 412 refetch event, apply LWW, bump `conflictsResolved`. Completion is done-wins.
 - Rate limits/errors: 403 rate-limit reasons, 429, 5xx -> exponential backoff with full jitter (base 1s, x2, cap 5 min, max 8 attempts, honour `Retry-After`), stored in `outbox.next_attempt_at`. 401 -> refresh once, then `reauth_required`. Network failure -> `offline`, outbox retained, retry next tick and on browser `online`.
 
@@ -97,7 +100,7 @@ Standalone in-memory server, also importable as `startMockGoogle({port})` for in
 - Test controls: `POST /__mock/config {failNext:{status,count}, latencyMs, tokenTtlSec, expireSyncToken}`, `POST /__mock/events` (simulate an edit in Google UI), `POST /__mock/reset`, `GET /__mock/state`.
 
 ## 9. Demo mode
-`DEMO_MODE=1`: `POST /demo/login` creates a demo user with seeded lists/tags/reminders (overdue, today, recurring, completed) and pre-links the mock Google account. UI shows a Demo banner; `DB_PATH=:memory:` allowed. Default in `.env.example`, so a fresh clone works with `npm run dev`.
+`DEMO_MODE=1`: `POST /demo/login` creates a demo user with seeded lists/tags/reminders (overdue, today, recurring, completed) and pre-links the mock Google account. UI shows a Demo banner. Default in `.dev.vars.example`, so a fresh clone works with `npm run dev`.
 
 ## 10. Frontend scope (WP-F)
 Sidebar (Today/Upcoming/Overdue/All/Done, lists, tags), reminder list with inline complete, quick-add bar with live parse preview, detail drawer (date, repeat, list, tags, priority, notes, calendar toggle), sync/settings panel (connect/disconnect, status, last sync, conflicts), keyboard shortcuts, light/dark, mobile bottom nav, PWA manifest + service worker, Notification API for due reminders, IndexedDB cache + mutation queue. Required `data-testid`s: `quick-add-input`, `reminder-item`, `complete-btn`, `sync-status`, `demo-login`, `sync-connect`, `offline-badge`.
@@ -112,13 +115,13 @@ Sidebar (Today/Upcoming/Overdue/All/Done, lists, tags), reminder list with inlin
 | WP-D Docs | README, setup, architecture, troubleshooting | `README.md`, `docs/**` | all |
 
 Interface agreements:
-- DB handle: better-sqlite3 `Database` created in `server/src/db/index.ts` (WP-B). WP-O owns `server/src/google/schema.ts` exporting `migrate(db)`; WP-B calls it at startup.
-- WP-O exports `registerGoogle(app: FastifyInstance, deps: {db, config})` (Fastify plugin mounting auth + sync routes, starts poller) from `server/src/google/index.ts`, and `enqueueSync(db, userId, reminderId, op)` from `server/src/google/outbox.ts`. WP-B calls `enqueueSync` after every write to a `calendarSync` reminder (a no-op stub is acceptable until WP-O lands) and mounts the plugin in `app.ts`.
-- WP-B exports `buildApp(config): Promise<FastifyInstance>` from `server/src/app.ts` for `inject` tests.
+- DB handle: the D1 binding `env.DB` (structural `Db` type in `server/src/db/index.ts`, helpers `q/one/many/exec/batch`; multi-statement writes use `batch`). Google tables live in the same migration.
+- WP-O exports `googleRoutes()` (Hono sub-app: auth + sync routes) from `server/src/google/index.ts` and `enqueueSync(db, userId, reminderId, op)` from `server/src/google/outbox.ts`. WP-B services call `enqueueSync` after every write to a `calendarSync` reminder and then `ctx.kick(userId)`.
+- WP-B exports `createApp(deps?)` (Hono app) from `server/src/app.ts` and `runScheduled(env)` from `server/src/scheduled.ts`; `server/src/worker.ts` is the entry (`fetch` + `scheduled`).
 - Order: B, O, F start together; T begins with unit tests (quick-add, recurrence, backoff, PKCE), then integration once B+O land; D last.
 
 ## 12. Dev and scripts
-`npm run dev` (implemented in `scripts/dev.mjs`) starts mock-google (4010), API (4000, `tsx watch`), and Vite (5173) via concurrently, loading `.env`. `npm test` = Vitest; `npm run test:e2e` = Playwright (starts stack with DEMO_MODE=1, in-memory DB, mock Google).
+`npm run dev` (`scripts/dev.mjs`) creates `.dev.vars` (random SESSION_SECRET) if missing, applies local D1 migrations, and starts mock-google (4010), `wrangler dev` (4000, local D1 under `.wrangler/`) and Vite (5173, proxies `/api`). `npm run build` = typecheck + Vite build. `npm run deploy` = build + `wrangler deploy` (create the D1 database first, see README). `npm run db:migrate:local` / `db:migrate:remote` apply `migrations/`. `npm test` = Vitest (integration tests start an in-memory local D1 through wrangler's `getPlatformProxy`; @cloudflare/vitest-pool-workers was not used because it requires Vitest 4 and the repo is on 5). `npm run test:e2e` = Playwright (headless; `scripts/e2e-server.mjs` builds the UI, migrates a fresh local D1 and runs `wrangler dev` with DEMO_MODE=1, plus mock Google).
 Environment note: global `~/.npmrc` has a dead proxy; project `.npmrc` (gitignored) overrides it. Recreate with `proxy=null` / `https-proxy=null` if missing.
 
 ## 13. Definition of done

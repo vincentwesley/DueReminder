@@ -5,17 +5,17 @@ v1 verified in demo mode; all checks green on Node 24. Only do what the owner as
 
 ## Before anything
 1. Work in `C:\Coding Projects\reminder-system`; read `DECISIONS.md`, `PLAN.md`, `docs/ARCHITECTURE.md`.
-2. `eval "$(fnm env)" && fnm use 24`; after switching Node run `npm rebuild better-sqlite3`.
+2. `eval "$(fnm env)" && fnm use 24`.
 3. Run `bash "/c/Coding Projects/_house/check-identity.sh"` before any push.
 
 ## How to work here
 - Commit as `vincentwesley` noreply only. Do not push or change visibility without an OK.
-- Checks: `npx tsc --noEmit`, `npx vitest run`, `npm run build`, `npx playwright test` (headless only).
+- Checks: `npx tsc --noEmit`, `npx vitest run`, `npm run build`, `npx playwright test` (headless only; starts `wrangler dev`).
 - `CLAUDE.md`, `graphify-out/` and `.claude/` are gitignored; keep them untracked.
 
 ## Current state
-- v1 verified in demo mode (Fastify + SQLite backend, React PWA, mock Google for e2e). Undo for complete/delete/snooze shipped.
-- Roadmap: port backend to Cloudflare Workers + D1 (Hono); house reskin; two-step Google OAuth (sign-in = `openid email profile`, `calendar.events` requested only when the user enables sync); delete account + export; `/privacy` and `/terms`; strict CSP.
+- Backend ported to Cloudflare Workers + D1 (Hono); verified locally in demo mode (React PWA, mock Google for e2e). Not deployed: `wrangler.jsonc` has a placeholder D1 id (README, Deploy to Cloudflare). Undo for complete/delete/snooze shipped.
+- Roadmap: house reskin (in progress on `web/`); two-step Google OAuth (sign-in = `openid email profile`, `calendar.events` requested only when the user enables sync); delete account + export; `/privacy` and `/terms`; strict CSP.
 - Live Google has never been tested.
 
 ## Known gaps / ideas

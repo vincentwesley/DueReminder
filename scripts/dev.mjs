@@ -48,10 +48,10 @@ function run(name, color, args, extraEnv = {}) {
 }
 
 if (existsSync(join(root, 'mock-google', 'server.ts'))) run('mock-google', 35, [tsx, 'watch', 'mock-google/server.ts'], { MOCK_GOOGLE_PORT: env.MOCK_GOOGLE_PORT });
-run('worker', 36, [wrangler, 'dev', '--port', env.API_PORT, '--ip', 'localhost', '--test-scheduled']);
+run('worker', 36, [wrangler, 'dev', '--port', env.API_PORT, '--ip', 'localhost']);
 if (existsSync(join(root, 'web', 'index.html')) && existsSync(vite)) run('web', 33, [vite, 'web', '--port', env.WEB_PORT, '--host', 'localhost']);
 
-console.log(`[dev] worker http://localhost:${env.API_PORT}  web http://localhost:${env.WEB_PORT}  (cron: curl "http://localhost:${env.API_PORT}/__scheduled")`);
+console.log(`[dev] worker http://localhost:${env.API_PORT}  web http://localhost:${env.WEB_PORT}  (cron: curl "http://localhost:${env.API_PORT}/cdn-cgi/local/scheduled")`);
 
 let stopping = false;
 function stop() {

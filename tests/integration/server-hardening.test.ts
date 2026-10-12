@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { Env } from '../../server/src/config';
 import { exec, many, one } from '../../server/src/db/index';
-import { runScheduled } from '../../server/src/worker';
+import { runScheduled } from '../../server/src/scheduled';
 import { cookieOf } from './google-helpers';
 import { freshDb, makeTestApp, testEnv } from './harness';
 
@@ -48,6 +48,14 @@ describe('security headers', () => {
     expect(String((await app.inject({ url: '/some/deep/link' })).headers['content-security-policy'])).toContain(`'sha256-${hash}'`);
     expect((await app.inject({ url: '/assets/a.js' })).headers['cache-control']).toContain('immutable');
     expect((await app.inject({ url: '/sw.js' })).headers['cache-control']).toBe('no-cache');
+  });
+
+  it('refetches without validators when the asset layer answers 304, so the CSP keeps its script hashes', async () => {
+    const assets: Env['ASSETS'] = { fetch: async (req) => (req.headers.has('if-none-match') ? new Response(null, { status: 304 }) : ASSETS!.fetch(req)) };
+    const app = makeTestApp(await freshDb(), { ASSETS: assets });
+    const res = await app.inject({ url: '/', headers: { 'if-none-match': '"abc"' } });
+    expect(res.statusCode).toBe(200);
+    expect(String(res.headers['content-security-policy'])).toContain("'sha256-");
   });
 
   it('adds HSTS in production and uses the __Host- cookie names', async () => {

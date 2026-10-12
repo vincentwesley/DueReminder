@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { exec, one } from '../../server/src/db/index';
-import { runScheduled, SYNC_BATCH } from '../../server/src/worker';
+import { runScheduled, SYNC_BATCH } from '../../server/src/scheduled';
 import { addReminder, auth, loginViaMock, makeHarness, type Harness } from './google-helpers';
 import { testEnv } from './harness';
 

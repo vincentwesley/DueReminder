@@ -2,11 +2,12 @@
 
 ## System Overview
 
-The Reminder System is a Google-connected reminder PWA with optional two-way Calendar sync. It consists of:
+The Reminder System is a Google-connected reminder PWA with optional two-way Calendar sync. It runs on Cloudflare:
 
-- **Browser PWA** (React, IndexedDB cache, service worker) on port 5173
-- **Fastify API** (TypeScript, SQLite) on port 4000
-- **Mock Google Server** (standalone, in-memory) on port 4010 for demo testing
+- **Browser PWA** (React, IndexedDB cache, service worker)
+- **Worker** (Hono, TypeScript): `fetch` serves `/api/*` and the built UI (Workers Assets, SPA fallback); `scheduled` (cron, every minute) runs Google sync and pruning
+- **D1** (SQLite) for all data, schema in `migrations/*.sql`
+- **Mock Google Server** (Node, in-memory, dev and tests only) on port 4010
 
 ```
 ┌─────────────────────────────────┐
@@ -14,21 +15,16 @@ The Reminder System is a Google-connected reminder PWA with optional two-way Cal
 │  - IndexedDB cache              │
 │  - Mutation queue (offline)     │
 │  - Service worker               │
-│  - Notifications API            │
+│  - Refetch: focus + every 60s   │
 └──────────────┬──────────────────┘
-               │
-               ├── Vite proxy /api to :4000
-               │   (dev: port 5173)
-               │   (prod: API serves static)
-               │
-       ┌───────▼───────────────────┐
-       │  Fastify API              │
-       │  - Session cookies        │
-       │  - SQLite database        │
-       │  - Reminder/list/tag CRUD │
-       │  - Quick-add NLP parsing  │
-       │  - OAuth flow             │
-       │  - Sync engine            │
+               │  /api (cookie session)
+               │  dev: Vite :5173 proxies to wrangler dev :4000
+               │  prod: same Worker serves the UI via ASSETS
+       ┌───────▼───────────────────┐        ┌────────────────────┐
+       │  Worker (Hono)            │◄──────►│  D1 (SQLite)       │
+       │  - fetch: API + static    │        └────────────────────┘
+       │  - scheduled: cron sync   │
+       │  - OAuth, sync engine     │
        │  - Outbox worker          │
        └───────┬───────────────────┘
                │
@@ -40,7 +36,7 @@ The Reminder System is a Google-connected reminder PWA with optional two-way Cal
         └───────────────────────────────────┘
 ```
 
-## Data Model (SQLite)
+## Data Model (D1 / SQLite)
 
 ### Core Tables
 
@@ -69,7 +65,7 @@ The Reminder System is a Google-connected reminder PWA with optional two-way Cal
 
 ## API Contract (JSON, `/api` prefix)
 
-All requests include session cookie `rs_session` (HttpOnly, SameSite=Lax, Secure in prod).
+All requests include the session cookie `__Host-rs_session` (HttpOnly, Secure, SameSite=Lax, Path=/; local http dev uses plain `rs_session` via `INSECURE_COOKIES=1`).
 State-changing calls require `X-Requested-With: fetch` header.
 
 ### Authentication
@@ -168,7 +164,7 @@ A reminder with `calendarSync=true` and a `dueAt`:
 
 ### Pull (Google → local)
 
-1. `POST /sync/run` or triggered by 60s poll / local write + 2s debounce
+1. `POST /sync/run`, a sync kicked after a local write (`waitUntil`, no timer), or the cron (every minute, users with a live session, oldest-synced first, 10 users per run)
 2. Query `events.list` with `syncToken` from `google_accounts`
 3. **First run**: Full list (timeMin 30 days ago); store `nextSyncToken`
 4. **Incremental**: Use saved `nextSyncToken`; HTTP 410 → discard token, full resync
@@ -210,7 +206,7 @@ A reminder with `calendarSync=true` and a `dueAt`:
 - Seeds sample data (lists, tags, reminders with various due dates and recurrence)
 - Pre-links mock Google account (if `DEMO_PRELINK=1`)
 - Mock Google server listens on port 4010
-- `DB_PATH=:memory:` allowed (in-memory SQLite)
+- Local D1 under `.wrangler/` (wrangler dev); integration tests use an in-memory D1
 
 The mock server implements OAuth (with `?auto=1` auto-approve) and Calendar v3 subset with:
 - In-memory event store
@@ -220,19 +216,20 @@ The mock server implements OAuth (with `?auto=1` auto-approve) and Calendar v3 s
 
 ## Session & Security
 
-- **Session cookie**: `rs_session`, HttpOnly, SameSite=Lax, Secure (prod only). The session id is rotated on every login (demo and Google), at most 10 sessions are kept per user, and expired sessions and OAuth states are pruned every 10 minutes
-- **Startup checks**: with `NODE_ENV=production` or `DEMO_MODE=0` the server refuses to start unless `SESSION_SECRET` is 32+ characters and not an example value. `DEMO_MODE=1` is refused in production, and `DEMO_MODE=0` requires `GOOGLE_AUTH_BASE=https://accounts.google.com`. In development without a secret, a random one is generated into `data/.session-secret` (gitignored)
-- **ID tokens**: signature (JWKS), issuer, audience, expiry and nonce are always verified. Only the local mock in demo mode skips the signature. Accounts are matched by Google subject, or by email only when `email_verified` is true and the local account is not bound to another subject
-- **Headers**: CSP (`default-src 'self'`, inline scripts allowed only by hash, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, HSTS in production, `no-store` on API responses, immutable caching only for hashed assets
-- **Rate limiting**: `/api/auth/*` (login, callback) and `/api/demo/*` are limited per client IP (`AUTH_RATE_LIMIT`, default 30 per minute; set `TRUST_PROXY=1` behind a reverse proxy so the real client IP is used)
-- **Idempotency keys** are scoped to user, method, path and body, and only successful responses are cached
+- **Session cookie**: `__Host-rs_session`, HttpOnly, Secure, SameSite=Lax, Path=/ (plain `rs_session` without Secure when `INSECURE_COOKIES=1`, local http only). The session id (32 random bytes via `crypto.getRandomValues`) is rotated on every login (demo and Google), at most 10 sessions are kept per user, and expired sessions, OAuth states and idempotency keys are pruned by the cron
+- **Startup checks**: with `NODE_ENV=production` or `DEMO_MODE=0` the Worker refuses to serve unless `SESSION_SECRET` is 32+ characters and not an example value. `DEMO_MODE=1` is refused in production, and `DEMO_MODE=0` requires `GOOGLE_AUTH_BASE=https://accounts.google.com`. In demo/dev without a secret, a per-isolate random one is used (stored tokens need a reconnect after a restart)
+- **ID tokens**: signature (JWKS, WebCrypto RS256), issuer, audience, expiry and nonce are always verified. Only the local mock in demo mode skips the signature. Accounts are matched by Google subject, or by email only when `email_verified` is true and the local account is not bound to another subject
+- **Headers**: CSP (`default-src 'self'`, inline scripts allowed only by hash, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, HSTS in production, `no-store` on API responses, immutable caching only for hashed assets. The Worker runs first for every request (`run_worker_first`) so static HTML gets the CSP with its inline-script hashes
+- **Rate limiting**: `/api/auth/*` (login, callback) and `/api/demo/*` are limited per client IP (`cf-connecting-ip`; `AUTH_RATE_LIMIT`, default 30 per minute). The limiter is in memory per isolate (not global), noted as a `ponytail:` upgrade path to a Workers `ratelimits` binding
+- **Request limits**: JSON bodies are capped by `BODY_LIMIT_BYTES` (default 256 KiB, 413 beyond it)
+- **Idempotency keys** are scoped to user, method, path and body, and only successful responses are cached (24h)
 - **CSRF**: State-changing calls require `X-Requested-With: fetch` header
-- **Token encryption**: AES-256-GCM, key derived from `SESSION_SECRET` (scrypt)
+- **Token encryption**: AES-256-GCM (WebCrypto), key derived from `SESSION_SECRET` with HKDF-SHA-256; ciphertext format `v2:` + base64(iv | ciphertext+tag)
 - **Token storage**: Never exposed to client; only HttpOnly cookie sent
 
 ## Frontend State Management
 
-**Zustand store** (`web/src/store.ts`):
+**Client store** (`web/src/store.ts`):
 - `user`: Current authenticated user
 - `reminders`: Array of reminder objects (from server + local mutations)
 - `lists`, `tags`: Collections
@@ -244,7 +241,9 @@ The mock server implements OAuth (with `?auto=1` auto-approve) and Calendar v3 s
 - `pending`: Count of mutations awaiting sync
 - `toasts`: Notification messages
 
-**IndexedDB cache** (`web/src/api.ts`):
+**Freshness**: there is no push channel (the per-user SSE stream was dropped with the move to Workers). Because the cron and write-triggered syncs change data server-side, the client refetches quietly on window focus, when the tab becomes visible, every 60s while visible, and whenever the sync state's `lastSyncAt` advances. A background refetch is discarded if a local edit landed while it was in flight.
+
+**IndexedDB cache** (`web/src/offline.ts`):
 - Stores reminders, lists, tags locally
 - Mutation queue (pending writes while offline)
 - Replayed on reconnect with idempotency keys
@@ -253,7 +252,7 @@ The mock server implements OAuth (with `?auto=1` auto-approve) and Calendar v3 s
 
 | Module | Owns | Depends on |
 |---|---|---|
-| **Backend (WP-B)** | `server/src/**` (except google/), `shared/schemas.ts`, `scripts/dev.mjs` | `shared/types.ts` |
+| **Backend (WP-B)** | `server/src/**` (except google/), `shared/schemas.ts`, `migrations/`, `wrangler.jsonc`, `scripts/` | `shared/types.ts` |
 | **OAuth & Sync (WP-O)** | `server/src/google/**`, `mock-google/**` | `shared/types.ts` |
 | **Frontend (WP-F)** | `web/**` | API contract (section 5 above) |
 | **Testing (WP-T)** | `tests/**`, `e2e/**`, `vitest.config.ts`, `playwright.config.ts` | All modules' public contracts |
@@ -261,12 +260,12 @@ The mock server implements OAuth (with `?auto=1` auto-approve) and Calendar v3 s
 
 ## Tech Stack
 
-- **Frontend**: React 19, Vite 6, vite-plugin-pwa (service worker + manifest)
-- **Backend**: Fastify 5, Zod 4 (schema validation)
-- **Database**: SQLite (better-sqlite3 12; Node 20.17 compatible)
+- **Frontend**: React 19, Vite, vite-plugin-pwa (service worker + manifest)
+- **Backend**: Cloudflare Workers, Hono 4, Zod 4 (schema validation)
+- **Database**: Cloudflare D1 (SQLite), migrations in `migrations/`
 - **Dates & Recurrence**: chrono-node (parsing), rrule (RFC 5545)
-- **Testing**: Vitest 3 (unit/integration), Playwright 1.50 (E2E)
-- **Dev orchestration**: concurrently 9, tsx (TypeScript runner)
+- **Testing**: Vitest (unit; integration against a real local D1 via wrangler's `getPlatformProxy`), Playwright (E2E against `wrangler dev`)
+- **Dev tooling**: wrangler, tsx (runs the Node mock Google server). `fastify` is a dev dependency used only by the mock server
 
 ## Further Reading
 

@@ -15,19 +15,19 @@ Scope requested: `openid email profile https://www.googleapis.com/auth/calendar.
    - Audience / Test users: while the app is in "Testing", add the Google account(s) you will sign in with. Only listed test users can connect. (Testing-mode refresh tokens expire after 7 days; publish to Production, or just reconnect when the UI shows "reauth required".)
 4. **Create credentials.** APIs & Services > Credentials > Create credentials > OAuth client ID.
    - Application type: **Web application**.
-   - Authorized redirect URIs: add exactly `http://localhost:4000/api/auth/callback` (must match `OAUTH_REDIRECT_URI` character for character, including port and no trailing slash). For a deployed host use its `https://` URL, for example `https://reminders.example.com/api/auth/callback`.
+   - Authorized redirect URIs: add exactly `http://localhost:5173/api/auth/callback` (the Vite dev origin; Vite proxies `/api` to the Worker on :4000) (must match `OAUTH_REDIRECT_URI` character for character, including port and no trailing slash). For a deployed host use its `https://` URL, for example `https://reminders.example.com/api/auth/callback`.
    - Click Create and copy the Client ID and Client secret.
-5. **Paste keys into `.env`** (copy `.env.example` to `.env` if you have not yet):
+5. **Paste keys into `.dev.vars`** (created by `npm run dev`, or copy `.dev.vars.example`). When deployed, set the same names as Worker secrets/vars instead (`npx wrangler secret put GOOGLE_CLIENT_SECRET`, see the README):
    ```
    GOOGLE_CLIENT_ID=<your client id>.apps.googleusercontent.com
    GOOGLE_CLIENT_SECRET=<your client secret>
    SESSION_SECRET=<32+ random characters, e.g. output of: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
    GOOGLE_AUTH_BASE=https://accounts.google.com
    GOOGLE_API_BASE=https://www.googleapis.com
-   OAUTH_REDIRECT_URI=http://localhost:4000/api/auth/callback
+   OAUTH_REDIRECT_URI=http://localhost:5173/api/auth/callback
    ```
-   The server refuses to start in production, or with `DEMO_MODE=0`, if `SESSION_SECRET` is missing, shorter than 32 characters or an example value. Changing it later makes stored tokens undecryptable; the account then shows "reconnect needed" and you reconnect.
-6. **Switch demo mode off.** Set `DEMO_MODE=0` in `.env`. The server refuses to start with `DEMO_MODE=1` while `GOOGLE_AUTH_BASE` points at real Google, so demo data can never talk to the real API.
+   The Worker refuses to serve in production, or with `DEMO_MODE=0`, if `SESSION_SECRET` is missing, shorter than 32 characters or an example value. Changing it later makes stored tokens undecryptable; the account then shows "reconnect needed" and you reconnect.
+6. **Switch demo mode off.** Set `DEMO_MODE=0` in `.dev.vars`. The Worker refuses to run with `DEMO_MODE=1` while `GOOGLE_AUTH_BASE` points at real Google, so demo data can never talk to the real API.
 7. **Restart** (`npm run dev`) and open <http://localhost:5173>. Click Connect Google (start URL: `/api/auth/google/start`), pick your account, and approve the calendar permission. If you see "Google hasn't verified this app", choose Advanced > Continue (expected for your own Testing-mode project).
 8. **Verify.** In the app, toggle "Sync to Google Calendar" on a reminder that has a due date. A 15-minute event (all-day if the reminder is all-day) appears in your primary calendar within a couple of seconds; edit the event in Google Calendar and click Sync now to see the change locally.
 

@@ -26,8 +26,9 @@ A responsive PWA for managing reminders with two-way Google Calendar sync, recur
 
 ## Prerequisites
 
-- **Node.js**: `>=20.17` (Node 22+ recommended; better-sqlite3 v13 requires Node 22)
-- **npm**: 10.8.2+
+- **Node.js**: 24 (see `.nvmrc`)
+- **npm**
+- A Cloudflare account only if you deploy (the app runs on Cloudflare Workers + D1; local dev needs no account)
 
 ## Quick Start
 
@@ -36,7 +37,7 @@ npm install
 npm run dev
 ```
 
-Opens <http://localhost:5173> (web), <http://localhost:4000> (API), <http://localhost:4010> (mock Google).
+Opens <http://localhost:5173> (web, Vite), <http://localhost:4000> (the Worker via `wrangler dev`, with a local D1 database) and <http://localhost:4010> (mock Google). The first run creates `.dev.vars` (gitignored) with a random `SESSION_SECRET` and applies the migrations to the local database.
 
 In demo mode (default), click "Demo" to log in with sample data. No credentials needed.
 
@@ -46,61 +47,50 @@ In demo mode (default), click "Demo" to log in with sample data. No credentials 
 - Sample reminders, lists, and tags
 - Mock Google Calendar server at `http://localhost:4010`
 - No real credentials required
-- `DEMO_MODE=1` in `.env`
+- `DEMO_MODE=1` in `.dev.vars`
 
 **Real Google Calendar**:
 1. Follow [SETUP_GOOGLE.md](./SETUP_GOOGLE.md) to create OAuth credentials
-2. Paste client ID/secret into `.env`
+2. Paste client ID/secret into `.dev.vars` and set `GOOGLE_AUTH_BASE=https://accounts.google.com`, `GOOGLE_API_BASE=https://www.googleapis.com`
 3. Set `DEMO_MODE=0`
 4. Restart `npm run dev` and click "Connect Google"
 
-## Going Live
+## Deploy to Cloudflare
 
-To deploy with real Google Calendar:
-1. Set up OAuth credentials (see [SETUP_GOOGLE.md](./SETUP_GOOGLE.md))
-2. Update `.env` with:
-   - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
-   - `GOOGLE_AUTH_BASE=https://accounts.google.com`
-   - `GOOGLE_API_BASE=https://www.googleapis.com`
-   - `OAUTH_REDIRECT_URI=https://yourdomain.com/api/auth/callback`
-   - `SESSION_SECRET=<32+ random characters>` (required: the server refuses to start in production, or with `DEMO_MODE=0`, without it)
-   - `DEMO_MODE=0`
-   - `NODE_ENV=production` (demo mode is refused in production)
-   - `TRUST_PROXY=1` if you run behind a reverse proxy
-3. Deploy the app and database
+1. `npx wrangler d1 create due-reminder`, then paste the printed `database_id` into `wrangler.jsonc` (the committed value is a placeholder; keep your real id out of git, or use a private fork).
+2. `npm run db:migrate:remote` applies `migrations/*.sql`.
+3. Set secrets: `npx wrangler secret put SESSION_SECRET` (32+ random characters; it derives the Google token encryption key), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+4. Set `OAUTH_REDIRECT_URI` (`wrangler.jsonc` vars, or leave it empty to use `<origin>/api/auth/callback`) and add that URL to the Google OAuth client. `NODE_ENV=production`, `DEMO_MODE=0` and the real Google endpoints are already the `wrangler.jsonc` defaults.
+5. `npm run deploy` builds the UI and runs `wrangler deploy`. A cron trigger (every minute) syncs Google Calendar for users with a live session.
 
-## Production Build and Start
-
-```bash
-npm run build
-npm start
-```
-
-The API serves the built web assets on `http://localhost:4000`.
+The Worker refuses to serve with a weak `SESSION_SECRET`, and refuses `DEMO_MODE=1` when `NODE_ENV=production`. Changing the secret later makes stored Google tokens undecryptable, so accounts show "Reconnect needed".
 
 ## Testing
 
 ```bash
-# Unit and integration tests (Vitest)
+# Unit and integration tests (Vitest). Integration tests run the Hono app in Node against a real local D1
+# (wrangler's getPlatformProxy) and the mock Google server.
 npm test
 
-# End-to-end tests (Playwright, starts full stack)
+# End-to-end tests (Playwright, headless): builds the UI, then starts `wrangler dev` (fresh local D1, DEMO_MODE=1) + mock Google
 npm run test:e2e
 ```
-
-Tests run in demo mode against the mock Google server.
 
 ## Project Structure
 
 ```
 shared/types.ts           Contract types (shared between client and server)
 shared/schemas.ts         Zod schemas matching types
+migrations/               D1 schema (wrangler d1 migrations)
+wrangler.jsonc            Worker, D1 binding, static assets, cron trigger
 
 server/src/
-  app.ts                  Fastify app setup
-  index.ts                Server entry point
-  db/                     SQLite schema and migrations
-  routes/                 API endpoints (lists, tags, reminders, quick-add)
+  worker.ts               Worker entry (fetch + scheduled)
+  app.ts                  Hono app: middleware, security headers, static assets
+  scheduled.ts            Cron job: Google sync for active users, pruning
+  config.ts               Env bindings and validated config
+  db/                     D1 helpers
+  routes/                 API endpoints (lists, tags, reminders, quick-add, templates)
   services/               Business logic (complete, snooze, recurring)
   nlp/                    Natural language parsing (quick-add, dates, rrule)
   google/                 OAuth, Google Calendar client, sync engine
@@ -108,7 +98,7 @@ server/src/
 web/src/
   App.tsx                 Main layout and keyboard shortcuts
   views.ts                Route/filter logic
-  store.ts                Zustand state store
+  store.ts                Client state store
   api.ts                  Client API wrapper
   notifications.ts        Web Notifications API
   theme.ts                Light/dark mode
@@ -116,7 +106,7 @@ web/src/
   public/                 PWA manifest, service worker
 
 mock-google/
-  server.ts               Standalone mock OAuth/Calendar server
+  server.ts               Standalone mock OAuth/Calendar server (Node, dev and tests only)
 
 tests/                    Unit and integration tests
 e2e/                      Playwright E2E tests
@@ -143,31 +133,19 @@ See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for system design, data model
 
 ## Configuration
 
-Copy `.env.example` to `.env` and configure:
+`npm run dev` copies `.dev.vars.example` to `.dev.vars` (gitignored) on first run. Names (values live only in `.dev.vars` or Cloudflare secrets):
 
 ```env
-# Demo mode: 1 = use mock Google, 0 = real Google
-DEMO_MODE=1
-
-# Google OAuth (for real Google; mock server ignores these)
-GOOGLE_CLIENT_ID=your-client-id
-GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_AUTH_BASE=http://localhost:4010      # Demo
-GOOGLE_API_BASE=http://localhost:4010       # Demo
-
-# Session encryption. Required in production and when DEMO_MODE=0 (32+ random characters,
-# generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))").
-# If empty in demo/dev, a random secret is generated into data/.session-secret.
-SESSION_SECRET=
-
-# Ports
-WEB_PORT=5173
-API_PORT=4000
-MOCK_GOOGLE_PORT=4010
-
-# Database
-DB_PATH=./data/reminders.db
+DEMO_MODE=1                 # 1 = seed demo data + mock Google, 0 = real Google
+NODE_ENV=development        # production refuses DEMO_MODE=1
+INSECURE_COOKIES=1          # local http only: plain `rs_session` cookie instead of Secure `__Host-rs_session`
+SESSION_SECRET=             # 32+ random characters; derives the Google token encryption key
+GOOGLE_CLIENT_ID= / GOOGLE_CLIENT_SECRET=
+GOOGLE_AUTH_BASE= / GOOGLE_API_BASE=      # mock (http://localhost:4010) or real Google
+OAUTH_REDIRECT_URI= / POST_LOGIN_REDIRECT=
 ```
+
+Optional: `DEFAULT_TIMEZONE`, `DEMO_PRELINK`, `AUTO_SYNC` (0 = no sync kick after writes; cron still syncs), `AUTH_RATE_LIMIT`, `BODY_LIMIT_BYTES`. Dev ports (`API_PORT`, `WEB_PORT`, `MOCK_GOOGLE_PORT`) are read by `npm run dev` from the environment.
 
 ## Troubleshooting
 
@@ -182,19 +160,19 @@ EOF
 ```
 
 ### Port conflicts
-If ports 5173, 4000, or 4010 are in use, update `.env`:
-```env
-WEB_PORT=3000
-API_PORT=3001
-MOCK_GOOGLE_PORT=3002
-```
-Then restart `npm run dev`.
+If ports 5173, 4000, or 4010 are in use, set `WEB_PORT`, `API_PORT` or `MOCK_GOOGLE_PORT` in the shell before `npm run dev` (and match `OAUTH_REDIRECT_URI` / `POST_LOGIN_REDIRECT` in `.dev.vars`).
+
+### Reset the local database
+Delete the `.wrangler/` folder (gitignored) and run `npm run db:migrate:local` (or just `npm run dev`).
+
+### Trigger the cron locally
+With `wrangler dev` running: `curl "http://localhost:4000/cdn-cgi/local/scheduled"`.
 
 ### "SESSION_SECRET is not set / looks like an example value"
-The server will not start in production, or with `DEMO_MODE=0`, without a strong secret. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Changing it later makes stored Google tokens undecryptable, so the account shows "Reconnect needed".
+The Worker will not serve in production, or with `DEMO_MODE=0`, without a strong secret. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Changing it later makes stored Google tokens undecryptable, so the account shows "Reconnect needed".
 
 ### "DEMO_MODE=1 but GOOGLE_AUTH_BASE points at real Google"
-The server refuses this for safety. Either:
+The Worker refuses this for safety. Either:
 - Set `DEMO_MODE=0` (use real Google), or
 - Point both `GOOGLE_AUTH_BASE` and `GOOGLE_API_BASE` at `http://localhost:4010`
 
@@ -207,9 +185,9 @@ The server refuses this for safety. Either:
 
 ## Data, network and privacy
 
-- **Local data**: reminders are stored in a local SQLite file (`DB_PATH`, default `data/reminders.db`) and in the browser's IndexedDB. `data/` is gitignored.
+- **Data storage**: reminders live in Cloudflare D1 (locally a SQLite file under `.wrangler/`, gitignored) and are cached in the browser's IndexedDB. Google tokens are stored AES-256-GCM encrypted.
 - **Network calls**: in demo mode (default) everything stays on `localhost`; no secrets are needed. With `DEMO_MODE=0` the server talks only to Google (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`) for OAuth and Calendar sync. No analytics or other third-party hosts.
-- **Secrets**: put credentials in `.env` only and never commit it (it is gitignored; `.env.example` holds placeholders). Google OAuth setup: [SETUP_GOOGLE.md](./SETUP_GOOGLE.md).
+- **Secrets**: put credentials in `.dev.vars` (local) or `wrangler secret put` (deployed) only; `.dev.vars` is gitignored and `.dev.vars.example` lists names only. Google OAuth setup: [SETUP_GOOGLE.md](./SETUP_GOOGLE.md).
 
 ## License
 
