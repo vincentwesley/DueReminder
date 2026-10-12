@@ -4,7 +4,7 @@ import { exec, many } from './db/index.js';
 import { runSync } from './google/sync';
 import { OAUTH_STATE_TTL_MS } from './http/auth.js';
 
-/** Users synced per cron tick (each cycle costs a few subrequests; the oldest-synced go first, so everyone rotates through). */
+/** Users synced per cron tick (each cycle costs a few subrequests; the least recently attempted go first, failures included, so everyone rotates through). */
 export const SYNC_BATCH = 10;
 
 /** Cron: sync users with a Google link and a live session, then drop expired rows. */
@@ -14,7 +14,7 @@ export async function runScheduled(env: Env, deps: AppDeps = {}): Promise<void> 
   const users = await many<{ user_id: string }>(ctx.db,
     `SELECT a.user_id FROM google_accounts a
      WHERE a.status != 'reauth_required' AND EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = a.user_id AND s.expires_at > ?)
-     ORDER BY COALESCE(a.last_sync_at, '') LIMIT ?`, now.toISOString(), SYNC_BATCH);
+     ORDER BY COALESCE(a.last_attempt_at, '') LIMIT ?`, now.toISOString(), SYNC_BATCH);
   // Sequential: one cron invocation shares a single Workers subrequest budget.
   for (const u of users) {
     try { await runSync(ctx.google, u.user_id); } catch { /* one user's failure must not stop the rest */ }

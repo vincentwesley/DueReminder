@@ -67,6 +67,9 @@ export function loadConfig(env: Vars = {}, overrides: { fetch?: typeof fetch } =
   if (nodeEnv === 'production' && demoMode) {
     throw new Error('DEMO_MODE must be off when NODE_ENV=production: demo login creates unauthenticated sessions.');
   }
+  if (nodeEnv === 'production' && on(env.INSECURE_COOKIES)) {
+    throw new Error('INSECURE_COOKIES must be off when NODE_ENV=production: it drops the Secure and __Host- cookie protections.');
+  }
   let sessionSecret = env.SESSION_SECRET ?? '';
   const problem = sessionSecretProblem(sessionSecret);
   if (problem) {

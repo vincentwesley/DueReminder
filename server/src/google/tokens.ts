@@ -15,6 +15,8 @@ export interface AccountRow {
   calendar_id: string;
   sync_token: string | null;
   last_sync_at: string | null;
+  last_attempt_at: string | null;
+  pull_resume: string | null;
   status: string;
   last_error: string | null;
   conflicts_resolved: number;

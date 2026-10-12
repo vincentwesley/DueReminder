@@ -111,27 +111,41 @@ export async function applyRemoteEvent(ctx: GoogleCtx, userId: string, ev: GEven
   return hasPending;
 }
 
+/** Per-cycle caps so one user cannot exhaust a cron tick's subrequest budget; leftovers carry to the next tick. */
+export const MAX_PULL_PAGES = 3;
+export const MAX_PUSH_ROWS = 50;
+
 async function pull(ctx: GoogleCtx, userId: string): Promise<void> {
   let acct = (await getAccount(ctx, userId)) as AccountRow;
   let syncToken = acct.sync_token;
   let retriedFull = false;
-  let pageToken: string | undefined;
+  const resume = acct.pull_resume ? (JSON.parse(acct.pull_resume) as { pageToken: string; timeMin?: string }) : null;
+  let pageToken: string | undefined = resume?.pageToken;
+  const timeMin = resume?.timeMin ?? new Date(Date.now() - 30 * 86_400_000).toISOString();
+  let pages = 0;
   for (;;) {
     try {
       const page = await listEvents(ctx, userId, acct.calendar_id, {
         showDeleted: 'true',
         maxResults: '250',
         pageToken,
-        ...(syncToken ? { syncToken } : { timeMin: new Date(Date.now() - 30 * 86_400_000).toISOString() }),
+        ...(syncToken ? { syncToken } : { timeMin }),
       });
       for (const ev of page.items ?? []) await applyRemoteEvent(ctx, userId, ev);
-      if (page.nextPageToken) { pageToken = page.nextPageToken; continue; }
-      if (page.nextSyncToken) await exec(ctx.db, 'UPDATE google_accounts SET sync_token = ? WHERE user_id = ?', page.nextSyncToken, userId);
+      if (page.nextPageToken) {
+        pageToken = page.nextPageToken;
+        if (++pages >= MAX_PULL_PAGES) { // keep the old sync token; the cursor resumes this walk next tick
+          await exec(ctx.db, 'UPDATE google_accounts SET pull_resume = ? WHERE user_id = ?', JSON.stringify({ pageToken, ...(syncToken ? {} : { timeMin }) }), userId);
+          return;
+        }
+        continue;
+      }
+      await exec(ctx.db, 'UPDATE google_accounts SET sync_token = COALESCE(?, sync_token), pull_resume = NULL WHERE user_id = ?', page.nextSyncToken ?? null, userId);
       return;
     } catch (e) {
       if (e instanceof GoogleHttpError && e.status === 410 && !retriedFull) {
         retriedFull = true; // sync token expired: discard and do a full resync
-        await exec(ctx.db, 'UPDATE google_accounts SET sync_token = NULL WHERE user_id = ?', userId);
+        await exec(ctx.db, 'UPDATE google_accounts SET sync_token = NULL, pull_resume = NULL WHERE user_id = ?', userId);
         syncToken = null;
         pageToken = undefined;
         acct = (await getAccount(ctx, userId)) as AccountRow;
@@ -184,9 +198,11 @@ async function pushRow(ctx: GoogleCtx, userId: string, calendarId: string, row: 
 
 async function push(ctx: GoogleCtx, userId: string, calendarId: string): Promise<string | null> {
   let lastErr: string | null = null;
-  for (let pass = 0; pass < 3; pass++) {
-    const rows = await many<OutboxRow>(ctx.db, 'SELECT * FROM outbox WHERE user_id = ? AND failed = 0 AND next_attempt_at <= ? ORDER BY id', userId, Date.now());
+  let budget = MAX_PUSH_ROWS;
+  for (let pass = 0; pass < 3 && budget > 0; pass++) {
+    const rows = await many<OutboxRow>(ctx.db, 'SELECT * FROM outbox WHERE user_id = ? AND failed = 0 AND next_attempt_at <= ? ORDER BY id LIMIT ?', userId, Date.now(), budget);
     if (rows.length === 0) break;
+    budget -= rows.length;
     for (const row of rows) {
       try {
         await pushRow(ctx, userId, calendarId, row);
@@ -233,7 +249,7 @@ const queued = new Map<string, Promise<SyncState>>();
 async function cycle(ctx: GoogleCtx, userId: string): Promise<SyncState> {
   const acct = await getAccount(ctx, userId);
   if (!acct || acct.status === 'reauth_required') return getSyncState(ctx, userId);
-  await setStatus(ctx, userId, 'syncing', null);
+  await exec(ctx.db, "UPDATE google_accounts SET status = 'syncing', last_error = NULL, last_attempt_at = ? WHERE user_id = ?", nowIso(), userId); // attempt recorded even if the cycle fails
   try {
     const softErr = await push(ctx, userId, acct.calendar_id);
     await pull(ctx, userId);
@@ -291,29 +307,36 @@ export async function disconnectAccount(ctx: GoogleCtx, userId: string): Promise
 const PURGE_MAX_EVENTS = 40; // stays inside the Workers subrequest budget
 const PURGE_BUDGET_MS = 10_000;
 
-/** Account deletion: best-effort removal of the events this app created (bounded), then revoke the grant. Never throws. */
-export async function purgeGoogleData(ctx: GoogleCtx, userId: string): Promise<void> {
-  const acct = await getAccount(ctx, userId);
-  if (!acct) return;
+/** Best-effort, bounded removal of the events this app created on a calendar. Never throws. */
+async function deleteAppEvents(ctx: GoogleCtx, userId: string, calendarId: string): Promise<void> {
   const ids = (await many<{ id: string }>(ctx.db,
     `SELECT google_event_id AS id FROM reminders WHERE user_id = ? AND google_event_id IS NOT NULL
      UNION SELECT event_id FROM outbox WHERE user_id = ? AND op = 'delete' AND event_id IS NOT NULL`, userId, userId)).map((r) => r.id).slice(0, PURGE_MAX_EVENTS);
   const stop = Date.now() + PURGE_BUDGET_MS;
   for (const id of ids) {
     if (Date.now() > stop) break;
-    try { await deleteEvent(ctx, userId, acct.calendar_id, id); }
+    try { await deleteEvent(ctx, userId, calendarId, id); }
     catch (e) {
       if (e instanceof GoogleHttpError) continue; // already gone or rejected: move on
       break; // network or re-auth problem: give up on the rest
     }
   }
+}
+
+/** Account deletion: remove the events this app created (bounded), then revoke the grant. Never throws. */
+export async function purgeGoogleData(ctx: GoogleCtx, userId: string): Promise<void> {
+  const acct = await getAccount(ctx, userId);
+  if (!acct) return;
+  await deleteAppEvents(ctx, userId, acct.calendar_id);
   await revokeTokens(ctx, userId);
 }
 
 /** Switch target calendar: reset the sync cursor and re-push every synced reminder. */
 export async function changeCalendar(ctx: GoogleCtx, userId: string, calendarId: string): Promise<SyncState> {
+  const acct = await getAccount(ctx, userId);
+  if (acct) await deleteAppEvents(ctx, userId, acct.calendar_id); // otherwise the old calendar keeps orphaned events
   await batch(ctx.db, [
-    q(ctx.db, 'UPDATE google_accounts SET calendar_id = ?, sync_token = NULL WHERE user_id = ?', calendarId, userId),
+    q(ctx.db, 'UPDATE google_accounts SET calendar_id = ?, sync_token = NULL, pull_resume = NULL WHERE user_id = ?', calendarId, userId),
     q(ctx.db, 'UPDATE reminders SET google_event_id = NULL, google_etag = NULL WHERE user_id = ?', userId),
   ]);
   const ids = await many<{ id: string }>(ctx.db, 'SELECT id FROM reminders WHERE user_id = ? AND calendar_sync = 1 AND deleted_at IS NULL AND due_at IS NOT NULL', userId);

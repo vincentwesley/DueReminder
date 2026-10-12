@@ -29,7 +29,7 @@ export async function startOAuth(ctx: GoogleCtx, c: C, kind: 'signin' | 'calenda
   const state = generateState();
   const verifier = generateCodeVerifier();
   await exec(db, 'INSERT INTO oauth_states (state, code_verifier, created_at, user_id, kind) VALUES (?,?,?,?,?)',
-    state, verifier, Date.now(), sessionUser, kind);
+    state, verifier, Date.now(), kind === 'calendar' ? sessionUser : null, kind); // sign-in never binds to the current session's user
 
   const url = new URL(authorizeUrl(cfg));
   const params: Record<string, string> = {
@@ -58,10 +58,9 @@ export async function startOAuth(ctx: GoogleCtx, c: C, kind: 'signin' | 'calenda
 }
 
 /** Existing user id for this Google identity (or linked session / verified email), else a new user. Returns [id, isNew]. */
-async function upsertUser(ctx: GoogleCtx, claims: IdClaims, linkUserId: string | null): Promise<string> {
+async function upsertUser(ctx: GoogleCtx, claims: IdClaims): Promise<string> {
   const { db, config } = ctx;
-  let id: string | undefined = linkUserId ?? undefined;
-  if (!id) id = (await one<{ id: string }>(db, 'SELECT id FROM users WHERE google_sub = ?', claims.sub))?.id;
+  let id = (await one<{ id: string }>(db, 'SELECT id FROM users WHERE google_sub = ?', claims.sub))?.id;
   if (!id && claims.email && claims.email_verified === true) {
     // Link by email only for a verified address on an account that is not already bound to another Google identity.
     id = (await one<{ id: string }>(db, 'SELECT id FROM users WHERE email = ? AND (google_sub IS NULL OR google_sub = ?)', claims.email, claims.sub))?.id;
@@ -145,12 +144,16 @@ export async function handleCallback(ctx: GoogleCtx, c: C): Promise<{ res: Respo
     if (!(tok.scope ?? '').split(' ').includes(CALENDAR_SCOPE)) return goto('auth_error=calendar_denied');
     const user = (await one<{ google_sub: string | null; email: string }>(db, 'SELECT google_sub, email FROM users WHERE id = ?', row.user_id!))!;
     let sub: string | undefined;
-    if (tok.id_token) {
-      try { sub = (await verifyIdToken(ctx, tok.id_token, state)).sub; }
-      catch (e) { ctx.log?.warn({ err: (e as Error).message }, 'id_token rejected'); return goto('auth_error=invalid_id_token'); }
-    }
-    if (sub && user.google_sub && sub !== user.google_sub) return goto('auth_error=account_mismatch'); // a different Google account than the one signed in
-    await saveAccount(ctx, row.user_id!, user.google_sub ?? sub ?? row.user_id!, user.email, tok);
+    try {
+      if (tok.id_token) sub = (await verifyIdToken(ctx, tok.id_token, state)).sub;
+      else { // no id_token: fall back to userinfo so the account is always verified
+        const ui = await doFetch(ctx, userinfoUrl(cfg), { headers: { authorization: `Bearer ${tok.access_token}` } }).catch(() => null);
+        sub = ui?.ok ? ((await ui.json()) as { sub?: string }).sub : undefined;
+        if (!sub) throw new Error('no id_token and userinfo gave no sub');
+      }
+    } catch (e) { ctx.log?.warn({ err: (e as Error).message }, 'id_token rejected'); return goto('auth_error=invalid_id_token'); }
+    if (user.google_sub && sub !== user.google_sub) return goto('auth_error=account_mismatch'); // a different Google account than the one signed in
+    await saveAccount(ctx, row.user_id!, user.google_sub ?? sub, user.email, tok);
     return { res: c.redirect(`${cfg.postLoginRedirect}?calendar=connected`, 302), userId: row.user_id };
   }
 
@@ -172,7 +175,7 @@ export async function handleCallback(ctx: GoogleCtx, c: C): Promise<{ res: Respo
   // Sign-in only: the user exists, but no Google tokens are kept (calendar tokens come from the separate calendar step).
   let userId: string;
   try {
-    userId = await upsertUser(ctx, claims, row.user_id);
+    userId = await upsertUser(ctx, claims);
   } catch (e) {
     if (/constraint/i.test((e as Error).message)) return goto('auth_error=account_conflict');
     throw e;
