@@ -16,3 +16,5 @@ coverage/
 .DS_Store
 review-shots/
 .session-secret
+graphify-out/
+.claude/settings.local.json

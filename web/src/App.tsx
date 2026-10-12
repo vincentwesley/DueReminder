@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
-import { boot, dismissToast, flushQueue, getState, loadAll, logout, refreshSync, setState, syncNow, toggleComplete, useStore } from './store';
+import { boot, dismissToast, flushQueue, getState, loadAll, logout, redo, refreshSync, setState, syncNow, toggleComplete, undo, useStore } from './store';
 import { DEFAULT_FILTERS, VIEW_TITLES, applyFilters, groupReminders, matchesRoute, useRoute, type Filters, type Route } from './views';
 import { requestNotifications, startDueWatcher, useNotifState } from './notifications';
 import { useTheme } from './theme';
@@ -22,6 +22,7 @@ function Toasts() {
       {toasts.map((t) => (
         <div key={t.id} className={`toast toast-${t.kind}`} role={t.kind === 'error' ? 'alert' : 'status'}>
           <span>{t.text}</span>
+          {t.action && <button type="button" className="toast-action" data-testid={`toast-${t.action.label.toLowerCase()}`} onClick={() => { t.action?.run(); dismissToast(t.id); }}>{t.action.label}</button>}
           <button type="button" className="icon-btn" aria-label="Dismiss message" onClick={() => dismissToast(t.id)}><Icon name="close" size={14} /></button>
         </div>
       ))}
@@ -171,10 +172,17 @@ function Shell() {
   // Keyboard shortcuts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target as HTMLElement;
       const typing = t.matches('input, textarea, select, [contenteditable="true"]');
       const s = getState();
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (s.editing || s.helpOpen || s.syncOpen || s.tourOpen || s.notifOpen || s.paletteOpen) return;
+        if (k === 'z' && !typing) { e.preventDefault(); void (e.shiftKey ? redo() : undo()); }
+        else if (k === 'y' && !typing) { e.preventDefault(); void redo(); }
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (typing) { if (e.key === 'Escape' && t === searchRef.current) { setState({ search: '' }); t.blur(); } return; }
       if (s.editing || s.helpOpen || s.syncOpen) return;
       const items = () => [...document.querySelectorAll<HTMLElement>('[data-testid="reminder-item"]')];

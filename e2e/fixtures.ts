@@ -9,6 +9,8 @@ export interface ApiReminder {
 }
 
 interface Fx {
+  /** Set to true (test.use) to let the first-run tour appear; otherwise it is pre-dismissed. */
+  tour: boolean;
   /** Fresh demo user + seed data + reset mock, signed in via cookie (page not yet loaded). */
   signedIn: Page;
   api: {
@@ -28,6 +30,12 @@ interface Fx {
 }
 
 export const test = base.extend<Fx>({
+  tour: [false, { option: true }],
+  context: async ({ context, tour }, use) => {
+    if (!tour) await context.addInitScript(() => { try { localStorage.setItem('rs.tour.done', '1'); } catch { /* ignore */ } });
+    await use(context);
+  },
+
   mock: async ({ request }, use) => {
     await request.post(`${MOCK}/__mock/reset`);
     const state = async () => (await request.get(`${MOCK}/__mock/state`)).json();

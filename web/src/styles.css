@@ -259,6 +259,8 @@ kbd { font: 600 0.85rem ui-monospace, monospace; background: var(--surface-2); b
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 8px; max-width: 460px; background: #1c2030; color: #f3f4f9; border-radius: 12px; padding: 8px 6px 8px 16px; box-shadow: var(--shadow-lg); animation: pop-in 0.25s var(--ease); font-size: 0.92rem; }
 .toast .icon-btn { color: #c4c9d8; width: 32px; height: 32px; }
 .toast .icon-btn:hover { background: rgb(255 255 255 / 0.12); color: #fff; }
+.toast-action { border: 0; background: rgb(255 255 255 / 0.14); color: #fff; font-weight: 700; border-radius: 8px; padding: 6px 12px; min-height: 32px; }
+.toast-action:hover { background: rgb(255 255 255 / 0.26); }
 .toast-error { background: #7a1c14; }
 .toast-success { background: #0d5a33; }
 
@@ -312,6 +314,7 @@ kbd { font: 600 0.85rem ui-monospace, monospace; background: var(--surface-2); b
   .btn, .btn-sm, .seg-btn, .menu button, .nav-link, .chip-btn, .sync-chip, .account { min-height: 44px; }
   .menu button { min-height: 44px; box-sizing: border-box; }
   .icon-btn, .row-action, .toast .icon-btn { width: 44px; height: 44px; }
+  .toast-action { min-height: 44px; min-width: 44px; }
   .row-action { opacity: 1; }
   .sync-chip { min-width: 44px; justify-content: center; }
   .account { min-width: 44px; }

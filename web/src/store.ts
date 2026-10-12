@@ -4,7 +4,8 @@ import { api, ApiFail, NetworkFail, request } from './api';
 import { processQueue } from './flush';
 import { cacheClear, cacheGet, cacheSet, newKey, queueAdd, queueAll, queueRemove } from './offline';
 
-export interface Toast { id: number; text: string; kind: 'info' | 'error' | 'success' }
+export interface ToastAction { label: string; run: () => void }
+export interface Toast { id: number; text: string; kind: 'info' | 'error' | 'success'; action?: ToastAction }
 export type Editing = { id: string; defaults?: undefined } | { id: 'new'; defaults?: Partial<ReminderCreate> } | null;
 
 export interface State {
@@ -25,12 +26,19 @@ export interface State {
   syncOpen: boolean;
   syncBusy: boolean;
   bootError: string | null;
+  paletteOpen: boolean;
+  tourOpen: boolean;
+  notifOpen: boolean;
+  selectMode: boolean;
+  selection: string[];
+  dragId: string | null;
 }
 
 let state: State = {
   user: undefined, demoMode: false, reminders: [], lists: [], tags: [], sync: null, loaded: false,
   online: typeof navigator === 'undefined' ? true : navigator.onLine, pending: 0, toasts: [], editing: null,
   selectedId: null, search: '', helpOpen: false, syncOpen: false, syncBusy: false, bootError: null,
+  paletteOpen: false, tourOpen: false, notifOpen: false, selectMode: false, selection: [], dragId: null,
 };
 const listeners = new Set<() => void>();
 export const getState = () => state;
@@ -46,10 +54,10 @@ export function useStore<T>(sel: (s: State) => T): T {
 }
 
 let toastId = 1;
-export function toast(text: string, kind: Toast['kind'] = 'info') {
+export function toast(text: string, kind: Toast['kind'] = 'info', action?: ToastAction) {
   const id = toastId++;
-  setState((s) => ({ toasts: [...s.toasts, { id, text, kind }] }));
-  setTimeout(() => dismissToast(id), kind === 'error' ? 7000 : 4000);
+  setState((s) => ({ toasts: [...s.toasts.slice(-3), { id, text, kind, action }] }));
+  setTimeout(() => dismissToast(id), kind === 'error' ? 7000 : action ? 8000 : 4000);
 }
 export const dismissToast = (id: number) => setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
 
@@ -264,13 +272,13 @@ export function draftReminder(c: ReminderCreate): Reminder {
   };
 }
 
-export function createReminder(c: ReminderCreate) {
+export function createReminder(c: ReminderCreate, onCreated?: (r: Reminder) => void) {
   const tmp = draftReminder(c);
   return write<Reminder>({
     method: 'POST', path: '/reminders', body: c,
     optimistic: () => setState((s) => ({ reminders: [tmp, ...s.reminders] })),
     call: (key) => request<Reminder>('POST', '/reminders', c, { 'Idempotency-Key': key }),
-    done: (r) => setState((s) => ({ reminders: s.reminders.map((x) => (x.id === tmp.id ? r : x)) })),
+    done: (r) => { setState((s) => ({ reminders: s.reminders.map((x) => (x.id === tmp.id ? r : x)) })); onCreated?.(r); },
   });
 }
 
@@ -311,41 +319,159 @@ export async function updateReminder(id: string, patch: ReminderPatch) {
   });
 }
 
-export async function toggleComplete(r: Reminder) {
+const latest = (id: string) => state.reminders.find((x) => x.id === id);
+
+export async function toggleComplete(r: Reminder, rec = true) {
   if (isTemp(r.id)) return false;
   const completing = r.status === 'open';
   const action = completing ? 'complete' : 'uncomplete';
-  return write<Reminder>({
+  let advanced = false; // recurring reminders roll forward to the next occurrence instead of closing
+  const ok = await write<Reminder>({
     method: 'POST', path: `/reminders/${r.id}/${action}`,
     // Recurring reminders advance on the server, so only mark one-off items done optimistically.
     optimistic: () => { if (!completing || !r.rrule) setState((s) => ({ reminders: s.reminders.map((x) => (x.id === r.id ? { ...x, status: completing ? 'done' : 'open', completedAt: completing ? now() : null } : x)) })); },
     call: (key) => request<Reminder>('POST', `/reminders/${r.id}/${action}`, undefined, { 'Idempotency-Key': key }),
     done: (res) => {
       replace(res);
-      if (completing) toast(r.rrule && res.status === 'open' ? 'Done. Next occurrence scheduled.' : 'Marked complete', 'success');
+      advanced = completing && !!r.rrule && res.status === 'open';
     },
   });
+  if (ok && rec) {
+    const label = completing ? (advanced ? 'Done. Next occurrence scheduled.' : 'Marked complete') : 'Marked not done';
+    record({
+      label,
+      undo: () => { const c = latest(r.id); return advanced ? updateReminder(r.id, { dueAt: r.dueAt }) : c ? toggleComplete(c, false) : Promise.resolve(false); },
+      redo: () => { const c = latest(r.id); return c ? toggleComplete(c, false) : Promise.resolve(false); },
+    });
+  }
+  return ok;
 }
 
-export async function snoozeReminder(r: Reminder, minutes: number) {
+export async function snoozeReminder(r: Reminder, minutes: number, rec = true) {
   if (isTemp(r.id)) return false;
   const until = new Date(Date.now() + minutes * 60_000).toISOString();
-  return write<Reminder>({
+  const ok = await write<Reminder>({
     method: 'POST', path: `/reminders/${r.id}/snooze`, body: { minutes },
     optimistic: () => setState((s) => ({ reminders: s.reminders.map((x) => (x.id === r.id ? { ...x, snoozedUntil: until } : x)) })),
     call: (key) => request<Reminder>('POST', `/reminders/${r.id}/snooze`, { minutes }, { 'Idempotency-Key': key }),
-    done: (res) => { replace(res); toast('Snoozed', 'success'); },
+    done: replace,
   });
+  if (ok && rec) {
+    const after = latest(r.id)?.snoozedUntil ?? until;
+    record({
+      label: 'Snoozed',
+      undo: () => updateReminder(r.id, { snoozedUntil: r.snoozedUntil ?? null }),
+      redo: () => updateReminder(r.id, { snoozedUntil: after }),
+    });
+  }
+  return ok;
 }
 
-export async function deleteReminder(r: Reminder) {
+function restorable(r: Reminder): ReminderCreate {
+  return { title: r.title, notes: r.notes, listId: r.listId, priority: r.priority, dueAt: r.dueAt, allDay: r.allDay, timezone: r.timezone, rrule: r.rrule, tagIds: r.tagIds, calendarSync: r.calendarSync };
+}
+
+export async function deleteReminder(r: Reminder, rec = true) {
   if (isTemp(r.id)) { setState((s) => ({ reminders: s.reminders.filter((x) => x.id !== r.id) })); return true; }
-  return write<void>({
+  const ok = await write<void>({
     method: 'DELETE', path: `/reminders/${r.id}`,
     optimistic: () => setState((s) => ({ reminders: s.reminders.filter((x) => x.id !== r.id), editing: s.editing?.id === r.id ? null : s.editing })),
     call: (key) => request<void>('DELETE', `/reminders/${r.id}`, undefined, { 'Idempotency-Key': key }),
-    done: () => toast('Reminder deleted', 'success'),
   });
+  if (ok && rec) {
+    let curId = r.id; // undoing a delete re-creates the reminder under a new id
+    record({
+      label: 'Reminder deleted',
+      undo: async () => { const id = await restoreReminder(r); if (id) curId = id; return !!id; },
+      redo: () => { const c = latest(curId); return c ? deleteReminder(c, false) : Promise.resolve(false); },
+    });
+  }
+  return ok;
+}
+
+/** Re-creates a deleted reminder (the API has no undelete) and returns its new id. */
+export async function restoreReminder(r: Reminder): Promise<string | null> {
+  let id: string | null = null;
+  const ok = await createReminder(restorable(r), (x) => { id = x.id; });
+  if (ok && id && r.status === 'done') { const n = latest(id); if (n) await toggleComplete(n, false); }
+  return ok ? id : null;
+}
+
+export async function moveReminder(r: Reminder, listId: string, rec = true) {
+  if (r.listId === listId) return true;
+  const ok = await updateReminder(r.id, { listId });
+  if (ok && rec) {
+    const name = state.lists.find((l) => l.id === listId)?.name ?? 'list';
+    record({ label: `Moved to ${name}`, undo: () => updateReminder(r.id, { listId: r.listId }), redo: () => updateReminder(r.id, { listId }) });
+  }
+  return ok;
+}
+
+/** Changes only the calendar day, keeping the time of day (all-day items stay all-day). */
+export function rescheduledIso(r: Reminder, day: Date): string {
+  const cur = r.dueAt ? new Date(r.dueAt) : null;
+  const h = r.allDay ? 0 : cur ? cur.getHours() : 9;
+  const m = r.allDay || !cur ? 0 : cur.getMinutes();
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m, 0, 0).toISOString();
+}
+
+export async function rescheduleReminder(r: Reminder, day: Date, rec = true) {
+  const dueAt = rescheduledIso(r, day);
+  const ok = await updateReminder(r.id, { dueAt });
+  if (ok && rec) record({ label: 'Rescheduled', undo: () => updateReminder(r.id, { dueAt: r.dueAt }), redo: () => updateReminder(r.id, { dueAt }) });
+  return ok;
+}
+
+export async function setPriority(r: Reminder, priority: Priority, rec = true) {
+  if (r.priority === priority) return true;
+  const ok = await updateReminder(r.id, { priority });
+  if (ok && rec) record({ label: `Priority set to ${PRIORITY_LABEL[priority]}`, undo: () => updateReminder(r.id, { priority: r.priority }), redo: () => updateReminder(r.id, { priority }) });
+  return ok;
+}
+
+/* ---------- undo / redo history ---------- */
+
+export interface HistoryEntry { label: string; undo: () => Promise<boolean>; redo: () => Promise<boolean> }
+const undoStack: HistoryEntry[] = [];
+const redoStack: HistoryEntry[] = [];
+
+/** Registers an undoable action and shows a toast with an Undo button. */
+export function record(e: HistoryEntry) {
+  undoStack.push(e);
+  if (undoStack.length > 50) undoStack.shift();
+  redoStack.length = 0;
+  toast(e.label, 'success', { label: 'Undo', run: () => void undoEntry(e) });
+}
+
+async function undoEntry(e: HistoryEntry) {
+  const i = undoStack.indexOf(e);
+  if (i < 0) return;
+  undoStack.splice(i, 1);
+  if (await e.undo()) {
+    redoStack.push(e);
+    toast(`Undone: ${e.label}`, 'info', { label: 'Redo', run: () => void redoEntry(e) });
+  } else toast('Could not undo that change.', 'error');
+}
+
+async function redoEntry(e: HistoryEntry) {
+  const i = redoStack.indexOf(e);
+  if (i < 0) return;
+  redoStack.splice(i, 1);
+  if (await e.redo()) {
+    undoStack.push(e);
+    toast(`Redone: ${e.label}`, 'info', { label: 'Undo', run: () => void undoEntry(e) });
+  } else toast('Could not redo that change.', 'error');
+}
+
+export async function undo() {
+  const e = undoStack[undoStack.length - 1];
+  if (!e) { toast('Nothing to undo', 'info'); return; }
+  await undoEntry(e);
+}
+export async function redo() {
+  const e = redoStack[redoStack.length - 1];
+  if (!e) { toast('Nothing to redo', 'info'); return; }
+  await redoEntry(e);
 }
 
 /* ---------- lists / tags ---------- */
