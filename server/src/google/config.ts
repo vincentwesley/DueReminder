@@ -1,4 +1,5 @@
 import { isStrict, sessionSecretProblem } from '../config.js';
+import { on } from '../util.js';
 import type { Db } from '../db/index.js';
 
 /** Step 1 (sign-in): identity only. */
@@ -34,7 +35,7 @@ const trimSlash = (s: string) => s.replace(/\/+$/, '');
 
 /** Merge explicit config over environment defaults. */
 export function resolveGoogleConfig(p: Partial<GoogleConfig> & { nodeEnv?: string }, env: GoogleEnv = {}): GoogleConfig {
-  const demoMode = p.demoMode ?? (env.DEMO_MODE === '1' || env.DEMO_MODE === 'true');
+  const demoMode = p.demoMode ?? (on(env.DEMO_MODE));
   const authBase = trimSlash(p.authBase ?? env.GOOGLE_AUTH_BASE ?? 'http://localhost:4010');
   const apiBase = trimSlash(p.apiBase ?? env.GOOGLE_API_BASE ?? 'http://localhost:4010');
   const realGoogle = /(^|\/\/)accounts\.google\.com$/.test(authBase);

@@ -9,7 +9,7 @@ import { AppError, unauthorized } from './errors.js';
 import { googleRoutes } from './google/index';
 import { runSync } from './google/sync';
 import { PUBLIC_PATHS } from './http/auth.js';
-import { CSRF_MESSAGE, failsCsrf, isSafeMethod } from './http/csrf.js';
+import { CSRF_MESSAGE, failsCsrf } from './http/csrf.js';
 import type { C, HonoEnv } from './http/types.js';
 import { accountRoutes } from './routes/account.js';
 import { miscRoutes } from './routes/misc.js';
@@ -18,8 +18,9 @@ import { templateRoutes } from './routes/templates.js';
 import { userFromRequest } from './session.js';
 import { sha256b64, sha256hex } from './util.js';
 
-const IDEM_TTL_MS = 24 * 3600_000;
+export const IDEM_TTL_MS = 24 * 3600_000;
 const RATE_WINDOW_MS = 60_000;
+const isSafeMethod = (m: string) => m === 'GET' || m === 'HEAD' || m === 'OPTIONS';
 
 const CSP_BASE = [
   "default-src 'self'", "img-src 'self' https://*.googleusercontent.com data:", "style-src 'self' 'unsafe-inline'",
@@ -27,15 +28,24 @@ const CSP_BASE = [
   "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'",
 ];
 
-/** CSP for an HTML document: scripts from self plus the exact inline scripts it contains (hashed, not 'unsafe-inline'). */
-async function cspFor(html: string | null): Promise<string> {
+const cspCache = new Map<string, string>();
+
+/** CSP for an HTML document: scripts from self plus the exact inline scripts it contains (hashed, not 'unsafe-inline'). Memoised per asset ETag. */
+async function cspFor(html: string | null, etag?: string | null): Promise<string> {
+  const hit = etag ? cspCache.get(etag) : undefined;
+  if (hit) return hit;
   const hashes: string[] = [];
   if (html) {
     for (const m of html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
       hashes.push(`'sha256-${(await sha256b64(m[1]!.replace(/\r\n?/g, '\n')))}'`); // browsers normalise newlines in script text before hashing
     }
   }
-  return [`script-src 'self' ${hashes.join(' ')}`.trim(), ...CSP_BASE].join('; ');
+  const csp = [`script-src 'self' ${hashes.join(' ')}`.trim(), ...CSP_BASE].join('; ');
+  if (etag) {
+    if (cspCache.size >= 16) cspCache.clear();
+    cspCache.set(etag, csp);
+  }
+  return csp;
 }
 
 export interface AppDeps {
@@ -200,7 +210,7 @@ async function serveStatic(c: C): Promise<Response> {
   headers.set('cache-control', pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache');
   if ((headers.get('content-type') ?? '').startsWith('text/html')) {
     const html = await res.text();
-    headers.set('content-security-policy', await cspFor(html));
+    headers.set('content-security-policy', await cspFor(html, res.headers.get('etag')));
     headers.delete('content-length');
     return new Response(html, { status: res.status, headers });
   }

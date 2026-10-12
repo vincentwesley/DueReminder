@@ -16,13 +16,11 @@ export async function enqueueSync(db: Db, userId: string, reminderId: string, op
   return true;
 }
 
-/** Ops still waiting to be pushed (excludes ones that exhausted their retries). */
-export const pendingOps = async (db: Db, userId: string): Promise<number> =>
-  (await one<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM outbox WHERE user_id = ? AND failed = 0', userId))!.n;
-
-/** Ops that could not be pushed after all retries; they stay until edited again or retried with Sync now. */
-export const failedOps = async (db: Db, userId: string): Promise<number> =>
-  (await one<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM outbox WHERE user_id = ? AND failed = 1', userId))!.n;
+/** Waiting (pending) and given-up (failed) outbox ops. Failed ones stay until edited again or retried with Sync now. */
+export const outboxCounts = async (db: Db, userId: string): Promise<{ pending: number; failed: number }> => {
+  const r = await one<{ p: number; f: number }>(db, 'SELECT COALESCE(SUM(failed = 0), 0) AS p, COALESCE(SUM(failed = 1), 0) AS f FROM outbox WHERE user_id = ?', userId);
+  return { pending: r!.p, failed: r!.f };
+};
 
 export const retryFailedOps = async (db: Db, userId: string): Promise<void> => {
   await exec(db, 'UPDATE outbox SET failed = 0, attempts = 0, next_attempt_at = 0 WHERE user_id = ? AND failed = 1', userId);

@@ -1,5 +1,5 @@
 import type { Db } from './db/index.js';
-import { randomHex } from './util.js';
+import { on, randomHex } from './util.js';
 import { resolveGoogleConfig, type GoogleConfig } from './google/config.js';
 
 /** Worker bindings and vars. Everything except DB is optional text (see .dev.vars.example). */
@@ -56,7 +56,6 @@ export function sessionSecretProblem(secret: string | undefined | null): string 
 /** Production, or any deployment with demo mode off (real accounts), must not run on a weak secret. */
 export const isStrict = (c: { nodeEnv: string; demoMode: boolean }) => c.nodeEnv === 'production' || !c.demoMode;
 
-const on = (v: string | undefined) => v === '1' || v === 'true';
 // ponytail: per-isolate random secret for demo/dev only (never strict deployments); tokens saved under it need a reconnect after an isolate restart. Set SESSION_SECRET in .dev.vars to avoid.
 let ephemeralSecret: string | undefined;
 
@@ -86,7 +85,7 @@ export function loadConfig(env: Vars = {}, overrides: { fetch?: typeof fetch } =
     bodyLimitBytes: num(env.BODY_LIMIT_BYTES, 262_144),
     insecureCookies: on(env.INSECURE_COOKIES),
     autoSync: env.AUTO_SYNC !== '0',
-    demoPrelink: env.DEMO_PRELINK === '1',
+    demoPrelink: on(env.DEMO_PRELINK),
     google: resolveGoogleConfig({ demoMode, sessionSecret, nodeEnv, fetch: overrides.fetch }, env),
   };
 }

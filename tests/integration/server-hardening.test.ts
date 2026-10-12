@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../server/src/config';
 import { exec, many, one } from '../../server/src/db/index';
 import { runScheduled } from '../../server/src/scheduled';
@@ -135,7 +135,9 @@ describe('abuse controls', () => {
     await exec(db, "INSERT INTO sessions (id,user_id,expires_at) VALUES ('old',?,'2000-01-01T00:00:00.000Z')", uid);
     await exec(db, "INSERT INTO oauth_states (state,code_verifier,created_at) VALUES ('stale','v',1)");
     await exec(db, "INSERT INTO idempotency_keys (key,user_id,response_json,created_at) VALUES ('k',?,'{}','2000-01-01T00:00:00.000Z')", uid);
-    await runScheduled(testEnv(db));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date().setMinutes(0, 0, 0)); // cleanup only runs on quarter-hour ticks
+    try { await runScheduled(testEnv(db)); } finally { vi.useRealTimers(); }
     expect(await one(db, "SELECT 1 FROM sessions WHERE id = 'old'")).toBeUndefined();
     expect(await one(db, "SELECT 1 FROM oauth_states WHERE state = 'stale'")).toBeUndefined();
     expect(await one(db, "SELECT 1 FROM idempotency_keys WHERE key = 'k'")).toBeUndefined();

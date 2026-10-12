@@ -1,11 +1,12 @@
 import { getCookie } from 'hono/cookie';
+import { sha256b64url } from '../util.js';
 import { batch, exec, many, one, q, type Db } from '../db/index.js';
 import { OAUTH_STATE_TTL_MS, cookieName, dropCookie, putCookie, userIdForSession, sessionIdFromRequest } from '../http/auth.js';
 import type { C } from '../http/types.js';
 import { startSession } from '../session.js';
 import { authorizeUrl, CALENDAR_SCOPE, SIGNIN_SCOPES, userinfoUrl, type GoogleCtx } from './config';
 import { nonceFor, verifyIdToken, type IdClaims } from './idtoken';
-import { codeChallengeS256, generateCodeVerifier, generateState } from './pkce';
+import { generateCodeVerifier, generateState } from './pkce';
 import { doFetch, postForm, type TokenResponse } from './tokens';
 import { encryptToken } from './crypto';
 import { enqueueSync } from './outbox';
@@ -38,7 +39,7 @@ export async function startOAuth(ctx: GoogleCtx, c: C, kind: 'signin' | 'calenda
     scope: kind === 'calendar' ? CALENDAR_SCOPE : SIGNIN_SCOPES.join(' '),
     state,
     nonce: await nonceFor(state),
-    code_challenge: await codeChallengeS256(verifier),
+    code_challenge: await sha256b64url(verifier),
     code_challenge_method: 'S256',
     ...(kind === 'calendar' ? { include_granted_scopes: 'true', access_type: 'offline', prompt: 'consent' } : {}),
   };

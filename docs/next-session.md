@@ -23,3 +23,8 @@ v1 verified in demo mode; all checks green on Node 24. Only do what the owner as
 1. Live Google OAuth and Calendar sync untested against the real API.
 2. @vitejs/plugin-react pinned to 5.x (6.x peer conflict with workbox's Babel 7).
 3. Report outcomes in a line or two.
+4. Rate limiter and sync/token single-flight are per isolate (needs a D1 lease, Durable Object or ratelimit binding).
+5. INSECURE_COOKIES flag: derive from request scheme instead.
+6. CSP inline-script hashing runs at request time (memoised per ETag); move to build time.
+7. N+1 queries in sync pull (sync.ts applyRemoteEvent loop, pull page fetch).
+8. enqueueSync issues 5 sequential statements; batch them.

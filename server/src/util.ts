@@ -1,5 +1,7 @@
 // WebCrypto + encoding helpers (no node:crypto, no Buffer: runs on Workers without nodejs_compat).
 const enc = new TextEncoder();
+/** Env flag: '1' or 'true'. */
+export const on = (v: string | undefined) => v === '1' || v === 'true';
 export const utf8 = (s: string) => enc.encode(s);
 export const fromUtf8 = (b: Uint8Array): string => new TextDecoder().decode(b);
 

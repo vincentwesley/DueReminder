@@ -2,6 +2,32 @@ import { useEffect, type CSSProperties } from 'react';
 
 const st = (s: string) => Object.fromEntries(s.split(';').filter(Boolean).map((p) => p.split(':').map((x) => x.trim()))) as CSSProperties;
 
+// Static decoration, parsed once at module load.
+const FLIES = [
+  '--x:30%;--y:22%;--s:3px;--d:11.7s;--b:3.1s;--dx:-34px;--dy:-36px;--delay:-9.6s',
+  '--x:38%;--y:62%;--s:2px;--d:8.2s;--b:2.3s;--dx:24px;--dy:-18px;--delay:-0.3s',
+  '--x:47%;--y:18%;--s:4px;--d:8.5s;--b:2.8s;--dx:30px;--dy:9px;--delay:-0.5s',
+  '--x:55%;--y:70%;--s:4px;--d:6.7s;--b:2.7s;--dx:40px;--dy:-38px;--delay:-3.9s',
+  '--x:62%;--y:30%;--s:4px;--d:6.3s;--b:2.7s;--dx:31px;--dy:-28px;--delay:-1.8s',
+  '--x:70%;--y:55%;--s:3px;--d:9.2s;--b:3.5s;--dx:31px;--dy:-22px;--delay:-0.9s',
+  '--x:78%;--y:24%;--s:4px;--d:9.8s;--b:3.1s;--dx:30px;--dy:-37px;--delay:-5.5s',
+  '--x:86%;--y:64%;--s:4px;--d:7.2s;--b:3.8s;--dx:14px;--dy:-5px;--delay:-3.4s',
+  '--x:93%;--y:38%;--s:4px;--d:8.2s;--b:2.8s;--dx:-17px;--dy:-14px;--delay:-0.7s',
+  '--x:44%;--y:84%;--s:3px;--d:9.2s;--b:4.2s;--dx:17px;--dy:-9px;--delay:-5.6s',
+  '--x:66%;--y:86%;--s:2px;--d:6.7s;--b:3.2s;--dx:3px;--dy:-26px;--delay:-6.3s',
+  '--x:25%;--y:74%;--s:4px;--d:6.2s;--b:3.7s;--dx:31px;--dy:-5px;--delay:-2.1s',
+  '--x:6%;--y:30%;--s:3px;--d:9.6s;--b:3.5s;--dx:18px;--dy:-37px;--delay:-8.1s',
+  '--x:14%;--y:82%;--s:3px;--d:8.8s;--b:3.7s;--dx:-33px;--dy:-6px;--delay:-5.7s',
+  '--x:21%;--y:12%;--s:5px;--d:10.9s;--b:2.9s;--dx:9px;--dy:-1px;--delay:-0.2s',
+  '--x:52%;--y:44%;--s:4px;--d:8.1s;--b:3.6s;--dx:23px;--dy:-38px;--delay:-1.8s',
+].map(st);
+const SPARKS: [string, CSSProperties][] = [
+  ['spark', st('--x:34%;--y:30%;--t:3.2s')],
+  ['spark', st('--x:58%;--y:22%;--t:4.1s;--delay:-1.3s')],
+  ['spark spark--sm', st('--x:50%;--y:58%;--t:2.7s;--delay:-.8s')],
+  ['spark spark--sm', st('--x:9%;--y:16%;--t:3.6s;--delay:-2s')],
+];
+
 export function Credits() {
   // house credits.js binds an IntersectionObserver to .creator; run it once on mount.
   useEffect(() => { const url = '/_house/credits/credits.js'; void import(/* @vite-ignore */ url); }, []);
@@ -11,23 +37,8 @@ export function Credits() {
         <div className="card__head"><h2 id="h-creator">Credits</h2></div>
         <div className="card__body creator__body">
           <div className="creator__fx" aria-hidden="true">
-            <i style={st("--x:30%;--y:22%;--s:3px;--d:11.7s;--b:3.1s;--dx:-34px;--dy:-36px;--delay:-9.6s")} />
-            <i style={st("--x:38%;--y:62%;--s:2px;--d:8.2s;--b:2.3s;--dx:24px;--dy:-18px;--delay:-0.3s")} />
-            <i style={st("--x:47%;--y:18%;--s:4px;--d:8.5s;--b:2.8s;--dx:30px;--dy:9px;--delay:-0.5s")} />
-            <i style={st("--x:55%;--y:70%;--s:4px;--d:6.7s;--b:2.7s;--dx:40px;--dy:-38px;--delay:-3.9s")} />
-            <i style={st("--x:62%;--y:30%;--s:4px;--d:6.3s;--b:2.7s;--dx:31px;--dy:-28px;--delay:-1.8s")} />
-            <i style={st("--x:70%;--y:55%;--s:3px;--d:9.2s;--b:3.5s;--dx:31px;--dy:-22px;--delay:-0.9s")} />
-            <i style={st("--x:78%;--y:24%;--s:4px;--d:9.8s;--b:3.1s;--dx:30px;--dy:-37px;--delay:-5.5s")} />
-            <i style={st("--x:86%;--y:64%;--s:4px;--d:7.2s;--b:3.8s;--dx:14px;--dy:-5px;--delay:-3.4s")} />
-            <i style={st("--x:93%;--y:38%;--s:4px;--d:8.2s;--b:2.8s;--dx:-17px;--dy:-14px;--delay:-0.7s")} />
-            <i style={st("--x:44%;--y:84%;--s:3px;--d:9.2s;--b:4.2s;--dx:17px;--dy:-9px;--delay:-5.6s")} />
-            <i style={st("--x:66%;--y:86%;--s:2px;--d:6.7s;--b:3.2s;--dx:3px;--dy:-26px;--delay:-6.3s")} />
-            <i style={st("--x:25%;--y:74%;--s:4px;--d:6.2s;--b:3.7s;--dx:31px;--dy:-5px;--delay:-2.1s")} />
-            <i style={st("--x:6%;--y:30%;--s:3px;--d:9.6s;--b:3.5s;--dx:18px;--dy:-37px;--delay:-8.1s")} />
-            <i style={st("--x:14%;--y:82%;--s:3px;--d:8.8s;--b:3.7s;--dx:-33px;--dy:-6px;--delay:-5.7s")} />
-            <i style={st("--x:21%;--y:12%;--s:5px;--d:10.9s;--b:2.9s;--dx:9px;--dy:-1px;--delay:-0.2s")} />
-            <i style={st("--x:52%;--y:44%;--s:4px;--d:8.1s;--b:3.6s;--dx:23px;--dy:-38px;--delay:-1.8s")} />
-            <b className="spark" style={st("--x:34%;--y:30%;--t:3.2s")} /><b className="spark" style={st("--x:58%;--y:22%;--t:4.1s;--delay:-1.3s")} /><b className="spark spark--sm" style={st("--x:50%;--y:58%;--t:2.7s;--delay:-.8s")} /><b className="spark spark--sm" style={st("--x:9%;--y:16%;--t:3.6s;--delay:-2s")} />
+            {FLIES.map((style, i) => <i key={i} style={style} />)}
+            {SPARKS.map(([cls, style], i) => <b key={i} className={cls} style={style} />)}
           </div>
           <div className="creator__art" aria-hidden="true">
             <img src="/_house/credits/creator.webp" alt="" width="456" height="613" loading="lazy" decoding="async" />

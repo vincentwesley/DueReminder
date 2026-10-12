@@ -1,11 +1,10 @@
 // One-command dev: mock Google + the Worker (`wrangler dev`, local D1 + static assets) + Vite frontend (proxies /api to the Worker).
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { killTree, migrateLocal, root, wrangler } from './lib.mjs';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
 
 // .dev.vars (gitignored) feeds wrangler dev. Create it from the example with a random SESSION_SECRET on first run.
@@ -25,10 +24,9 @@ const node = process.execPath;
 const bin = (...p) => join(root, 'node_modules', ...p);
 const tsx = bin('tsx', 'dist', 'cli.mjs');
 const vite = bin('vite', 'bin', 'vite.js');
-const wrangler = bin('wrangler', 'bin', 'wrangler.js');
 
 mkdirSync(join(root, 'web', 'dist'), { recursive: true }); // wrangler needs the assets directory to exist (Vite serves the UI in dev)
-spawnSync(node, [wrangler, 'd1', 'migrations', 'apply', 'DB', '--local'], { cwd: root, stdio: 'inherit' });
+migrateLocal();
 
 const procs = [];
 function run(name, color, args, extraEnv = {}) {
@@ -59,8 +57,7 @@ function stop() {
   stopping = true;
   for (const p of procs) {
     if (p.exitCode !== null || !p.pid) continue;
-    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(p.pid), '/T', '/F'], { stdio: 'ignore' });
-    else p.kill('SIGTERM');
+    killTree(p);
   }
   process.exit(0);
 }

@@ -4,6 +4,7 @@ import { one } from '../db/index.js';
 import { sessionIdFromRequest, userIdForSession } from '../http/auth.js';
 import type { HonoEnv } from '../http/types.js';
 import { getUserById } from '../session.js';
+import { doFetch } from './tokens';
 import { apiError, handleCallback, saveAccount, startOAuth } from './oauth';
 import { changeCalendar, disconnectAccount, getSyncState, runSync } from './sync';
 
@@ -14,10 +15,9 @@ export { getSyncState, runSync } from './sync';
 export async function linkDemoAccount(ctx: Ctx, userId: string, email = 'demo@example.com'): Promise<void> {
   const g = ctx.google;
   if (!g.config.demoMode) throw new Error('linkDemoAccount is only available in DEMO_MODE');
-  const f = g.config.fetch;
   const url = `${g.config.authBase}/__mock/issue-token`;
   const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }) };
-  const r = await (f ? f(url, init) : fetch(url, init));
+  const r = await doFetch(g, url, init);
   if (!r.ok) throw new Error(`mock-google issue-token failed (${r.status})`);
   const tok = (await r.json()) as { access_token: string; refresh_token?: string; expires_in: number; scope?: string };
   await saveAccount(g, userId, 'mock-sub-' + email, email, tok);

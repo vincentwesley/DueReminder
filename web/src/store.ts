@@ -556,7 +556,12 @@ export const PRIORITY_LABEL: Record<Priority, string> = { 0: 'None', 1: 'Low', 2
 
 // No push channel: refetch when the tab regains focus and every 60s while it is visible.
 if (typeof window !== 'undefined') {
-  const refetch = () => { if (document.visibilityState === 'visible' && navigator.onLine && state.user && state.loaded && !state.pending) void loadAll(true); };
+  let last = 0; // focus + visibilitychange usually fire together: collapse them (and the timer) into one refetch per 5s
+  const refetch = () => {
+    if (document.visibilityState !== 'visible' || !navigator.onLine || !state.user || !state.loaded || state.pending || Date.now() - last < 5000) return;
+    last = Date.now();
+    void loadAll(true);
+  };
   window.addEventListener('focus', refetch);
   document.addEventListener('visibilitychange', refetch);
   setInterval(refetch, 60_000);

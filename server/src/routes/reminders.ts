@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { ReminderCreate, ReminderPatch } from '../../../shared/types.js';
 import { QuickAddSchema, ReminderCreateSchema, ReminderPatchSchema, ReminderQuerySchema, SnoozeSchema, SubtaskInputSchema, SubtaskPatchSchema } from '../../../shared/schemas.js';
 import { badRequest } from '../errors.js';
+import { on } from '../util.js';
 import { idParam, uidOf } from '../http/auth.js';
 import type { HonoEnv } from '../http/types.js';
 import { parseQuickAdd } from '../nlp/quickAdd.js';
@@ -28,7 +29,7 @@ export function reminderRoutes(): Hono<HonoEnv> {
     const timezone = body.timezone ?? ctx.config.defaultTimezone;
     if (!isValidTz(timezone)) throw badRequest('Invalid timezone');
     const parsed = parseQuickAdd(body.text, { now: body.now ? new Date(body.now) : new Date(), timezone });
-    if (preview === '1' || preview === 'true') return c.json({ parsed });
+    if (on(preview)) return c.json({ parsed });
     const userId = uidOf(c);
     let listId: string | undefined;
     if (parsed.listName) listId = ((await findListByName(ctx, userId, parsed.listName)) ?? (await createList(ctx, userId, { name: parsed.listName }))).id;

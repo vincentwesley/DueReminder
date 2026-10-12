@@ -5,7 +5,7 @@ import { deleteEvent, getEvent, insertEvent, listEvents, patchEvent, type GEvent
 import type { GoogleCtx } from './config';
 import { GoogleHttpError, NetworkError, ReauthRequiredError } from './errors';
 import { fromEvent, toEvent, type ReminderRow } from './mapping';
-import { enqueueSync, failedOps, pendingOps, retryFailedOps } from './outbox';
+import { enqueueSync, outboxCounts, retryFailedOps } from './outbox';
 import { getAccount, revokeTokens, type AccountRow } from './tokens';
 
 interface OutboxRow { id: number; user_id: string; reminder_id: string; op: 'upsert' | 'delete'; event_id: string | null; attempts: number; next_attempt_at: number }
@@ -17,6 +17,7 @@ export async function getSyncState(ctx: GoogleCtx, userId: string): Promise<Sync
   if (!a) {
     return { status: 'disconnected', connected: false, googleEmail: null, calendarId: 'primary', lastSyncAt: null, lastError: null, pendingOps: 0, conflictsResolved: 0, failedOps: 0 };
   }
+  const { pending, failed } = await outboxCounts(ctx.db, userId);
   return {
     status: a.status as SyncStatus,
     connected: true,
@@ -24,9 +25,9 @@ export async function getSyncState(ctx: GoogleCtx, userId: string): Promise<Sync
     calendarId: a.calendar_id,
     lastSyncAt: a.last_sync_at,
     lastError: a.last_error,
-    pendingOps: await pendingOps(ctx.db, userId),
+    pendingOps: pending,
     conflictsResolved: a.conflicts_resolved,
-    failedOps: await failedOps(ctx.db, userId),
+    failedOps: failed,
   };
 }
 
@@ -44,19 +45,19 @@ const bumpConflicts = (ctx: GoogleCtx, userId: string) =>
 
 // ---------------------------------------------------------------- pull
 
-/** Apply one remote event to local state using last-writer-wins (done-wins for completion). */
-export async function applyRemoteEvent(ctx: GoogleCtx, userId: string, ev: GEvent): Promise<void> {
+/** Apply one remote event to local state using last-writer-wins (done-wins for completion). Returns true when a conflict was counted. */
+export async function applyRemoteEvent(ctx: GoogleCtx, userId: string, ev: GEvent): Promise<boolean> {
   const rid = ev.extendedProperties?.private?.reminderId;
-  if (!rid || !ev.id) return; // events not created by us are ignored in v1
+  if (!rid || !ev.id) return false; // events not created by us are ignored in v1
   const r = await getReminder(ctx, userId, rid);
-  if (!r || !r.calendar_sync) return;
-  if (r.google_event_id && r.google_event_id !== ev.id) return; // stale/duplicate event
+  if (!r || !r.calendar_sync) return false;
+  if (r.google_event_id && r.google_event_id !== ev.id) return false; // stale/duplicate event
 
   const pending = (await one<{ n: number }>(ctx.db, 'SELECT COUNT(*) AS n FROM outbox WHERE user_id = ? AND reminder_id = ?', userId, rid))!;
   const hasPending = pending.n > 0;
 
   if (ev.status === 'cancelled') {
-    if (r.deleted_at || r.google_event_id !== ev.id) return;
+    if (r.deleted_at || r.google_event_id !== ev.id) return false;
     if (!hasPending && Date.parse(ev.updated ?? nowIso()) >= Date.parse(r.updated_at)) {
       await exec(ctx.db, 'UPDATE reminders SET deleted_at = ?, updated_at = ?, version = version + 1, google_event_id = NULL, google_etag = NULL WHERE id = ?',
         nowIso(), ev.updated ?? nowIso(), rid);
@@ -65,12 +66,13 @@ export async function applyRemoteEvent(ctx: GoogleCtx, userId: string, ev: GEven
       await setLink(ctx, rid, null, null);
       await bumpConflicts(ctx, userId);
       await enqueueSync(ctx.db, userId, rid, 'upsert');
+      return true;
     }
-    return;
+    return false;
   }
 
-  if (r.deleted_at) return; // pending local delete wins
-  if (ev.etag && ev.etag === r.google_etag) return; // echo of our own write
+  if (r.deleted_at) return false; // pending local delete wins
+  if (ev.etag && ev.etag === r.google_etag) return false; // echo of our own write
 
   const remote = fromEvent(ev, r);
   const remoteUpdated = Date.parse(ev.updated ?? '') || 0;
@@ -92,13 +94,13 @@ export async function applyRemoteEvent(ctx: GoogleCtx, userId: string, ev: GEven
       await bumpConflicts(ctx, userId);
     }
     if (done !== remote.done) await enqueueSync(ctx.db, userId, rid, 'upsert'); // local completion must reach Google
-    return;
+    return hasPending;
   }
 
   // Local is newer (or equal): keep local, adopt the etag so the next patch succeeds.
   if (!differs) {
     await setLink(ctx, rid, ev.id, ev.etag ?? null);
-    return;
+    return false;
   }
   if (remote.done && !localDone) {
     await exec(ctx.db, 'UPDATE reminders SET status = ?, completed_at = ?, updated_at = ?, version = version + 1 WHERE id = ?', 'done', completedAt, nowIso(), rid);
@@ -106,6 +108,7 @@ export async function applyRemoteEvent(ctx: GoogleCtx, userId: string, ev: GEven
   await setLink(ctx, rid, ev.id, ev.etag ?? null);
   if (hasPending) await bumpConflicts(ctx, userId);
   await enqueueSync(ctx.db, userId, rid, 'upsert');
+  return hasPending;
 }
 
 async function pull(ctx: GoogleCtx, userId: string): Promise<void> {
@@ -172,10 +175,7 @@ async function pushRow(ctx: GoogleCtx, userId: string, calendarId: string, row: 
       const remote = await getEvent(ctx, userId, calendarId, r.google_event_id);
       await exec(ctx.db, 'UPDATE reminders SET google_etag = NULL WHERE id = ?', r.id); // force apply path to treat as non-echo
       await exec(ctx.db, 'DELETE FROM outbox WHERE id = ?', row.id);
-      const before = ((await getAccount(ctx, userId)) as AccountRow).conflicts_resolved;
-      await applyRemoteEvent(ctx, userId, remote);
-      const after = ((await getAccount(ctx, userId)) as AccountRow).conflicts_resolved;
-      if (after === before) await bumpConflicts(ctx, userId); // row was dropped above, so applyRemote saw no pending op
+      if (!(await applyRemoteEvent(ctx, userId, remote))) await bumpConflicts(ctx, userId); // row was dropped above, so applyRemote saw no pending op
       return;
     }
     throw e;
@@ -218,7 +218,7 @@ async function push(ctx: GoogleCtx, userId: string, calendarId: string): Promise
 
 /** Persistent message for pushes that gave up; null when nothing is flagged failed. */
 async function failedSummary(ctx: GoogleCtx, userId: string): Promise<string | null> {
-  const failed = await failedOps(ctx.db, userId);
+  const { failed } = await outboxCounts(ctx.db, userId);
   if (failed === 0) return null;
   const last = (await one<{ last_error: string | null }>(ctx.db, 'SELECT last_error FROM outbox WHERE user_id = ? AND failed = 1 ORDER BY id DESC LIMIT 1', userId))?.last_error;
   return `${failed} change${failed === 1 ? '' : 's'} could not be pushed to Google (${last ?? 'unknown error'}). Use Sync now to retry.`;

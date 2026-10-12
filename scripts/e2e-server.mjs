@@ -2,23 +2,21 @@
 // Ports are isolated from `npm run dev`. State lives in test-results/ (gitignored) and is wiped on every start.
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { killTree, migrateLocal, root, wrangler } from './lib.mjs';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
 const APP = process.env.E2E_APP_PORT ?? '4100';
 const MOCK = process.env.E2E_MOCK_PORT ?? '4110';
 const state = join(root, 'test-results', 'wrangler-e2e');
 const node = process.execPath;
-const wrangler = join(root, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 const vite = join(root, 'node_modules', 'vite', 'bin', 'vite.js');
 
 const must = (r) => { if (r.status !== 0) process.exit(r.status ?? 1); };
 must(spawnSync(node, [vite, 'build', '--config', 'web/vite.config.ts'], { stdio: 'inherit' }));
 rmSync(state, { recursive: true, force: true });
 mkdirSync(state, { recursive: true });
-must(spawnSync(node, [wrangler, 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', state], { stdio: 'inherit' }));
+must(migrateLocal(state));
 
 const vars = {
   NODE_ENV: 'development',
@@ -39,8 +37,7 @@ const args = [wrangler, 'dev', '--port', APP, '--ip', 'localhost', '--persist-to
 const child = spawn(node, args, { stdio: ['ignore', 'inherit', 'inherit'] });
 child.on('exit', (code) => process.exit(code ?? 0));
 const stop = () => {
-  if (process.platform === 'win32' && child.pid) spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-  else child.kill('SIGTERM');
+  killTree(child);
   process.exit(0);
 };
 process.on('SIGINT', stop);

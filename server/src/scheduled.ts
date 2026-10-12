@@ -1,7 +1,8 @@
-import { ctxFactory, type AppDeps } from './app.js';
+import { ctxFactory, IDEM_TTL_MS, type AppDeps } from './app.js';
 import type { Env } from './config.js';
 import { exec, many } from './db/index.js';
 import { runSync } from './google/sync';
+import { OAUTH_STATE_TTL_MS } from './http/auth.js';
 
 /** Users synced per cron tick (each cycle costs a few subrequests; the oldest-synced go first, so everyone rotates through). */
 export const SYNC_BATCH = 10;
@@ -14,9 +15,13 @@ export async function runScheduled(env: Env, deps: AppDeps = {}): Promise<void> 
     `SELECT a.user_id FROM google_accounts a
      WHERE a.status != 'reauth_required' AND EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = a.user_id AND s.expires_at > ?)
      ORDER BY COALESCE(a.last_sync_at, '') LIMIT ?`, now.toISOString(), SYNC_BATCH);
-  await Promise.allSettled(users.map((u) => runSync(ctx.google, u.user_id)));
+  // Sequential: one cron invocation shares a single Workers subrequest budget.
+  for (const u of users) {
+    try { await runSync(ctx.google, u.user_id); } catch { /* one user's failure must not stop the rest */ }
+  }
+  if (now.getMinutes() % 15 !== 0) return;
   // Expired sessions, abandoned OAuth states and old idempotency keys would otherwise accumulate forever.
   await exec(ctx.db, 'DELETE FROM sessions WHERE expires_at < ?', now.toISOString());
-  await exec(ctx.db, 'DELETE FROM oauth_states WHERE created_at < ?', now.getTime() - 10 * 60_000);
-  await exec(ctx.db, 'DELETE FROM idempotency_keys WHERE created_at < ?', new Date(now.getTime() - 24 * 3600_000).toISOString());
+  await exec(ctx.db, 'DELETE FROM oauth_states WHERE created_at < ?', now.getTime() - OAUTH_STATE_TTL_MS);
+  await exec(ctx.db, 'DELETE FROM idempotency_keys WHERE created_at < ?', new Date(now.getTime() - IDEM_TTL_MS).toISOString());
 }
