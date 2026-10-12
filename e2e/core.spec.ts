@@ -16,14 +16,14 @@ test.describe('sign-in', () => {
     await expect(page.getByTestId('demo-login')).toBeVisible();
   });
 
-  test('Google sign-in against the mock lands signed in and linked', async ({ page, request, mock: _m }) => {
+  test('Google sign-in against the mock lands signed in, without calendar access', async ({ page, request, mock: _m }) => {
     await page.goto('/');
     await page.getByTestId('google-signin').click();
     await expect(page.getByTestId('quick-add-input')).toBeVisible();
     await expect(page).toHaveURL(/localhost:4100\/(#.*)?$/);
     const me = await (await page.context().request.get('/api/auth/me')).json();
     expect(me.email).toBe('demo@example.com');
-    await expect(page.getByTestId('sync-status')).toHaveAttribute('data-status', /idle|syncing/);
+    await expect(page.getByTestId('sync-status')).toHaveAttribute('data-status', 'disconnected');
     void request;
   });
 

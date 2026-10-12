@@ -24,6 +24,7 @@ export interface State {
   search: string;
   helpOpen: boolean;
   syncOpen: boolean;
+  settingsOpen: boolean;
   syncBusy: boolean;
   bootError: string | null;
   paletteOpen: boolean;
@@ -37,7 +38,7 @@ export interface State {
 let state: State = {
   user: undefined, demoMode: false, reminders: [], lists: [], tags: [], sync: null, loaded: false,
   online: typeof navigator === 'undefined' ? true : navigator.onLine, pending: 0, toasts: [], editing: null,
-  selectedId: null, search: '', helpOpen: false, syncOpen: false, syncBusy: false, bootError: null,
+  selectedId: null, search: '', helpOpen: false, syncOpen: false, settingsOpen: false, syncBusy: false, bootError: null,
   paletteOpen: false, tourOpen: false, notifOpen: false, selectMode: false, selection: [], dragId: null,
 };
 const listeners = new Set<() => void>();
@@ -66,7 +67,25 @@ const mergeById = (a: Reminder[]) => [...new Map(a.map((r) => [r.id, r])).values
 
 /* ---------- boot / auth ---------- */
 
+/** Message for the `?calendar=...` / `?calendar_error=...` / `?auth_error=...` the OAuth callback leaves on the URL; then cleans the URL. */
+function showOAuthResult() {
+  if (typeof window === 'undefined') return;
+  const p = new URLSearchParams(window.location.search);
+  const cal = p.get('calendar'), calErr = p.get('calendar_error'), authErr = p.get('auth_error');
+  if (!cal && !calErr && !authErr) return;
+  if (cal === 'connected') toast('Google Calendar connected', 'success');
+  else if (calErr === 'access_denied' || calErr === 'calendar_denied') toast('Calendar access was not granted, so sync is off. You are still signed in; you can connect later from the sync menu.', 'info');
+  else if (calErr === 'account_mismatch') toast('That was a different Google account than the one you signed in with. Connect Calendar with the same account.', 'error');
+  else if (calErr) toast('Could not connect Google Calendar. Please try again.', 'error');
+  else if (authErr === 'access_denied') toast('Google sign-in was cancelled.', 'info');
+  else toast('Google sign-in failed. Please try again.', 'error');
+  for (const k of ['calendar', 'calendar_error', 'auth_error']) p.delete(k);
+  const rest = p.toString();
+  window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash);
+}
+
 export async function boot() {
+  showOAuthResult();
   try {
     const h = await api.health();
     setState({ demoMode: !!h.demo });
@@ -109,6 +128,31 @@ export async function logout() {
   try { await api.logout(); } catch { /* still clear local state */ }
   await cacheClear();
   setState({ user: null, reminders: [], lists: [], tags: [], sync: null, editing: null, syncOpen: false, pending: 0 });
+}
+
+/** Downloads everything the server holds for this user as a JSON file. */
+export async function exportMyData() {
+  try {
+    const data = await api.exportData();
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: 'due-reminder-export.json' });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Your data was downloaded', 'success');
+  } catch (e) {
+    toast(`Could not export your data: ${errText(e)}`, 'error');
+  }
+}
+
+/** Permanently deletes the account on the server, then clears everything local. Returns true on success. */
+export async function deleteAccount(): Promise<boolean> {
+  try { await api.deleteAccount(); } catch (e) { toast(`Could not delete the account: ${errText(e)}`, 'error'); return false; }
+  await cacheClear();
+  setState({ user: null, reminders: [], lists: [], tags: [], sync: null, editing: null, syncOpen: false, settingsOpen: false, pending: 0 });
+  toast('Your account and data were deleted', 'success');
+  return true;
 }
 
 /* ---------- loading ---------- */

@@ -32,7 +32,7 @@ async function cspFor(html: string | null): Promise<string> {
   const hashes: string[] = [];
   if (html) {
     for (const m of html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
-      hashes.push(`'sha256-${(await sha256b64(m[1]!))}'`);
+      hashes.push(`'sha256-${(await sha256b64(m[1]!.replace(/\r\n?/g, '\n')))}'`); // browsers normalise newlines in script text before hashing
     }
   }
   return [`script-src 'self' ${hashes.join(' ')}`.trim(), ...CSP_BASE].join('; ');

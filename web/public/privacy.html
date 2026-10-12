@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#11150e" />
+    <title>Privacy - DueReminder</title>
+    <link rel="stylesheet" href="/_house/tokens.css" />
+    <link rel="stylesheet" href="/legal.css" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <script src="/legal.js"></script>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top"><a class="brand" href="/">DueReminder</a><a href="/">Back to the app</a></header>
+      <main class="card">
+        <h1>Privacy</h1>
+        <p class="updated">Last updated 12 October 2026</p>
+        <p>DueReminder is a small reminder app. This page says what it stores, why, and how to get rid of it. It collects as little as it can.</p>
+
+        <h2>What is stored</h2>
+        <ul>
+          <li><strong>Account:</strong> the email address, name, profile picture link and Google account ID that Google gives the app when you sign in.</li>
+          <li><strong>Your content:</strong> reminders (titles, notes, dates, repeat rules, priorities), subtasks, lists, tags and templates.</li>
+          <li><strong>Session:</strong> a login cookie so you stay signed in (30 days). It is needed for the app to work. There are no other cookies.</li>
+          <li><strong>Google Calendar tokens:</strong> only if you turn on calendar sync. They are stored encrypted (AES-256-GCM) and used only to sync. They are never shown in the app and never included in your data export.</li>
+          <li><strong>On your device:</strong> a local copy of your reminders (browser storage) so the app works offline, and your theme choice.</li>
+        </ul>
+
+        <h2>Why</h2>
+        <p>To sign you in, show your reminders on every device, and, only if you choose, mirror reminders that have a due date to your Google Calendar and bring edits made there back. Nothing is used for advertising or profiling.</p>
+
+        <h2>Google sign-in and Calendar</h2>
+        <p>Signing in asks Google only for your basic profile (<code>openid email profile</code>). Calendar access (<code>calendar.events</code>) is a separate, optional step you start from the sync menu. Without it, no calendar data is touched.</p>
+        <p>With sync on, the app reads the event list of your calendar to notice changes to events <em>it created</em>. Events it did not create are ignored: they are not stored, changed or deleted. You can disconnect at any time, and you can also revoke access at <a href="https://myaccount.google.com/permissions" rel="noopener">myaccount.google.com/permissions</a>.</p>
+        <p>DueReminder's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. Google data is used only to provide the calendar sync you asked for. It is not sold, not used for ads, not used to train AI models, and not read by people except where needed to fix a problem you report or to follow the law.</p>
+
+        <h2>Who else sees it</h2>
+        <p>No analytics, no trackers, no ads. The only third parties are Google (sign-in and Calendar, at your request) and Cloudflare, which hosts the app and its database and so processes requests on its behalf. Fonts and all code are served by the app itself.</p>
+
+        <h2>Export and delete</h2>
+        <p>Open the account menu, then <strong>Settings</strong>. <strong>Export my data</strong> downloads everything stored about you as a JSON file. <strong>Delete account</strong> permanently erases your account, reminders, lists, tags, templates, sessions and stored tokens, removes the calendar events the app created (if sync was on), and revokes the Google access. This cannot be undone. Backups kept by the hosting provider may take a short while to expire.</p>
+
+        <h2>Contact</h2>
+        <p>Questions or requests: open an issue at <a href="https://github.com/vincentwesley/DueReminder/issues" rel="noopener">github.com/vincentwesley/DueReminder/issues</a>. Please do not post personal details there.</p>
+      </main>
+      <nav class="foot" aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+    </div>
+  </body>
+</html>

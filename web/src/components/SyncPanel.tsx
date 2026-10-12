@@ -58,7 +58,7 @@ export default function SyncPanel() {
             </button>
           )}
           {(!sync?.connected || status === 'reauth_required') && (
-            <a className="btn btn-primary" href="/api/auth/google/start" data-testid="sync-connect">{status === 'reauth_required' ? 'Reconnect Google' : 'Connect Google Calendar'}</a>
+            <a className="btn btn-primary" href="/api/auth/google/calendar" data-testid="sync-connect">{status === 'reauth_required' ? 'Reconnect Google' : 'Connect Google Calendar'}</a>
           )}
           {sync?.connected && <button type="button" className="btn" onClick={() => void disconnectGoogle()} data-testid="sync-disconnect">Disconnect</button>}
         </div>

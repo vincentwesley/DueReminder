@@ -8,11 +8,13 @@ import { Login } from './components/Login';
 import { QuickAdd } from './components/QuickAdd';
 import { ReminderItem } from './components/ReminderItem';
 import { Credits } from './components/Credits';
+import { LegalLinks } from './components/LegalLinks';
 import { BottomNav, Sidebar } from './components/Sidebar';
 
 const Editor = lazy(() => import('./components/Editor'));
 const SyncPanel = lazy(() => import('./components/SyncPanel'));
 const Help = lazy(() => import('./components/Help'));
+const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 
 const SYNC_LABEL: Record<string, string> = { disconnected: 'Connect Google', idle: 'Synced', syncing: 'Syncing', offline: 'Sync offline', error: 'Sync error', reauth_required: 'Reconnect Google' };
 
@@ -53,6 +55,7 @@ function AccountChip() {
       {open && (
         <div className="menu menu-right" role="menu">
           <div className="menu-info"><strong>{user.name}</strong><span>{user.email}</span></div>
+          <button type="button" role="menuitem" data-testid="settings-btn" onClick={() => { setOpen(false); setState({ settingsOpen: true }); }}>Settings</button>
           <button type="button" role="menuitem" data-testid="signout-btn" onClick={() => void logout()}>Sign out</button>
         </div>
       )}
@@ -149,6 +152,7 @@ function Shell() {
   const editing = useStore((s) => s.editing);
   const helpOpen = useStore((s) => s.helpOpen);
   const syncOpen = useStore((s) => s.syncOpen);
+  const settingsOpen = useStore((s) => s.settingsOpen);
   const [drawer, setDrawer] = useState(false);
   const [theme, cycleTheme] = useTheme();
   const [notif, setNotif] = useNotifState();
@@ -178,14 +182,14 @@ function Shell() {
       const s = getState();
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         const k = e.key.toLowerCase();
-        if (s.editing || s.helpOpen || s.syncOpen || s.tourOpen || s.notifOpen || s.paletteOpen) return;
+        if (s.editing || s.helpOpen || s.syncOpen || s.settingsOpen || s.tourOpen || s.notifOpen || s.paletteOpen) return;
         if (k === 'z' && !typing) { e.preventDefault(); void (e.shiftKey ? redo() : undo()); }
         else if (k === 'y' && !typing) { e.preventDefault(); void redo(); }
         return;
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (typing) { if (e.key === 'Escape' && t === searchRef.current) { setState({ search: '' }); t.blur(); } return; }
-      if (s.editing || s.helpOpen || s.syncOpen) return;
+      if (s.editing || s.helpOpen || s.syncOpen || s.settingsOpen) return;
       const items = () => [...document.querySelectorAll<HTMLElement>('[data-testid="reminder-item"]')];
       switch (e.key) {
         case 'n': e.preventDefault(); setState({ editing: { id: 'new' } }); break;
@@ -228,7 +232,7 @@ function Shell() {
       {status === 'reauth_required' && (
         <div className="banner banner-error" role="alert" data-testid="reauth-banner">
           <Icon name="alert" size={16} /><span>Google Calendar access expired. </span>
-          <a className="link" href="/api/auth/google/start" data-testid="reauth-connect">Reconnect Google</a>
+          <a className="link" href="/api/auth/google/calendar" data-testid="reauth-connect">Reconnect Google</a>
         </div>
       )}
       {notif === 'default' && !notifDismissed && (
@@ -286,6 +290,7 @@ function Shell() {
       <Suspense fallback={null}>
         {editing && <Editor />}
         {syncOpen && <SyncPanel />}
+        {settingsOpen && <SettingsPanel />}
         {helpOpen && <Help />}
       </Suspense>
       <Toasts />
@@ -299,6 +304,7 @@ export function App() {
   return (
     <>
       {user === undefined ? <div className="boot" role="status" aria-label="Loading"><span className="spinner" /></div> : user ? <Shell /> : <><Login /><Toasts /></>}
+      <LegalLinks />
       <Credits />
     </>
   );

@@ -352,3 +352,8 @@ kbd { font: 600 0.85rem var(--font-mono); background: var(--surface-2); border: 
   .item-title { min-height: 44px; }
   .search input[type='search'], .quick-row input[type='text'] { min-height: 44px; }
 }
+
+.legal-links { display: flex; gap: 20px; justify-content: center; padding: 20px 16px 4px; }
+.legal-links a { color: var(--muted); min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; }
+.legal-links a:hover, .legal-links a:focus-visible { color: var(--primary); }
+.panel a { color: var(--primary); }

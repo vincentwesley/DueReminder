@@ -1,0 +1,11 @@
+# Workers static assets headers (from _house/_headers). The Worker (server/src/app.ts) sets the same set on every response
+# and replaces the CSP on HTML with one that also hashes the document's inline scripts; this file covers asset-only paths.
+# Keep the policy in sync with CSP_BASE in app.ts. No external hosts except Google profile pictures.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' https://*.googleusercontent.com data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Cross-Origin-Opener-Policy: same-origin

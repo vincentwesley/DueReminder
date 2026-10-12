@@ -1,0 +1,19 @@
+/* Static legal pages: house tokens (dark default, light via data-theme), no inline styles or scripts. */
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 1rem/1.65 var(--font-body); }
+.wrap { max-width: 46rem; margin: 0 auto; padding: 24px 16px 56px; }
+.top { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; }
+.top a { color: var(--accent); font-weight: 600; }
+.top .brand { font-family: var(--font-head); font-size: 1.125rem; color: var(--fg); text-decoration: none; }
+.card { background: var(--bg-elev); border: 2px solid var(--border-strong); padding: 20px 20px 8px; box-shadow: 4px 4px 0 var(--border); }
+h1, h2 { font-family: var(--font-head); line-height: 1.2; }
+h1 { margin: 0 0 4px; font-size: 1.75rem; }
+h2 { margin: 28px 0 8px; font-size: 1.15rem; }
+.updated { margin: 0 0 8px; color: var(--fg-muted); font-size: 0.9rem; }
+a { color: var(--accent); }
+a:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+li { margin: 4px 0; }
+code { font-family: var(--font-mono); font-size: 0.9em; }
+.foot { margin-top: 24px; display: flex; gap: 20px; justify-content: center; }
+.foot a { color: var(--fg-muted); min-height: 44px; display: inline-flex; align-items: center; padding: 0 8px; }
+@media (max-width: 480px) { h1 { font-size: 1.5rem; } .card { padding: 16px 14px 4px; } }
