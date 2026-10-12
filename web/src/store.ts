@@ -127,13 +127,17 @@ async function fetchAll(): Promise<Reminder[]> {
   return mergeById(out).filter((r) => !r.deletedAt);
 }
 
-export async function loadAll() {
+/** `quiet` = background refetch: no toast on failure, and dropped if a local edit landed while it was in flight. */
+export async function loadAll(quiet = false) {
+  const before = state.reminders;
   try {
     const [reminders, lists, tags] = await Promise.all([fetchAll(), api.lists(), api.tags()]);
+    if (quiet && state.reminders !== before) return;
     setState({ reminders, lists: lists.filter((l) => !l.deletedAt).sort((a, b) => a.sortOrder - b.sortOrder), tags, loaded: true, online: true });
     void cacheSet('data', { reminders, lists, tags });
   } catch (e) {
     if (e instanceof ApiFail && e.status === 401) { setState({ user: null, loaded: true }); return; }
+    if (quiet) return;
     const cached = await cacheGet<{ reminders: Reminder[]; lists: List[]; tags: Tag[] }>('data');
     if (cached) setState({ ...cached, loaded: true, online: false });
     else setState({ loaded: true, online: e instanceof NetworkFail ? false : state.online });
@@ -143,8 +147,11 @@ export async function loadAll() {
 
 export async function refreshSync() {
   try {
+    const prev = state.sync?.lastSyncAt;
     const sync = await api.syncState();
     setState({ sync, online: true });
+    // The server syncs on its own (cron + after writes): a newer lastSyncAt means Google changes may have landed.
+    if (prev && sync.lastSyncAt && sync.lastSyncAt !== prev) void loadAll(true);
   } catch (e) {
     if (e instanceof NetworkFail) setState({ online: false });
   }
@@ -502,3 +509,11 @@ export async function addTag(name: string) {
 }
 
 export const PRIORITY_LABEL: Record<Priority, string> = { 0: 'None', 1: 'Low', 2: 'Medium', 3: 'High' };
+
+// No push channel: refetch when the tab regains focus and every 60s while it is visible.
+if (typeof window !== 'undefined') {
+  const refetch = () => { if (document.visibilityState === 'visible' && navigator.onLine && state.user && state.loaded && !state.pending) void loadAll(true); };
+  window.addEventListener('focus', refetch);
+  document.addEventListener('visibilitychange', refetch);
+  setInterval(refetch, 60_000);
+}
