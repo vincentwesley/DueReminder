@@ -17,9 +17,8 @@ describe('google OAuth (PKCE) against mock', () => {
     expect(loc.origin).toBe(h.mock.url);
     expect(loc.pathname).toBe('/o/oauth2/v2/auth');
     expect(loc.searchParams.get('code_challenge_method')).toBe('S256');
-    expect(loc.searchParams.get('scope')).toContain('calendar.events');
-    expect(loc.searchParams.get('scope')).not.toContain('auth/calendar ');
-    expect(loc.searchParams.get('access_type')).toBe('offline');
+    expect(loc.searchParams.get('scope')).toBe('openid email profile');
+    expect(loc.searchParams.get('access_type')).toBeNull();
     const state = loc.searchParams.get('state')!;
     expect(state.length).toBeGreaterThanOrEqual(43);
     const cookieHeader = ([] as string[]).concat(login.headers['set-cookie'] as string[]).join(';');

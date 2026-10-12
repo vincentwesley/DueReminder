@@ -4,7 +4,7 @@ import { one } from '../db/index.js';
 import { sessionIdFromRequest, userIdForSession } from '../http/auth.js';
 import type { HonoEnv } from '../http/types.js';
 import { getUserById } from '../session.js';
-import { apiError, handleCallback, saveAccount, startLogin } from './oauth';
+import { apiError, handleCallback, saveAccount, startOAuth } from './oauth';
 import { changeCalendar, disconnectAccount, getSyncState, runSync } from './sync';
 
 export { enqueueSync } from './outbox';
@@ -34,14 +34,15 @@ export async function onDemoSeed(ctx: Ctx, userId: string): Promise<void> {
   }
 }
 
-/** /api/auth/{login,google/start,callback,me} and /api/sync/*. Global CSRF + session checks run before these. */
+/** /api/auth/{login,google/start,google/calendar,callback,me} and /api/sync/*. Global CSRF + session checks run before these. */
 export function googleRoutes(): Hono<HonoEnv> {
   const app = new Hono<HonoEnv>();
   const google = (c: { var: { ctx: Ctx } }) => c.var.ctx.google;
   const uid = (c: { var: { user: { id: string } | null } }) => c.var.user!.id;
 
-  app.get('/auth/login', (c) => startLogin(google(c), c));
-  app.get('/auth/google/start', (c) => startLogin(google(c), c));
+  app.get('/auth/login', (c) => startOAuth(google(c), c, 'signin'));
+  app.get('/auth/google/start', (c) => startOAuth(google(c), c, 'signin'));
+  app.get('/auth/google/calendar', (c) => startOAuth(google(c), c, 'calendar'));
   app.get('/auth/callback', async (c) => {
     const { res, userId } = await handleCallback(google(c), c);
     if (userId) c.var.ctx.kick(userId);

@@ -1,7 +1,10 @@
 import { isStrict, sessionSecretProblem } from '../config.js';
 import type { Db } from '../db/index.js';
 
-export const SCOPES = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/calendar.events'];
+/** Step 1 (sign-in): identity only. */
+export const SIGNIN_SCOPES = ['openid', 'email', 'profile'];
+/** Step 2 (opt-in, signed-in users): calendar access, requested only when the user turns sync on. */
+export const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 
 export interface GoogleConfig {
   clientId: string;

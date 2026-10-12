@@ -27,6 +27,8 @@ interface MockConfig {
   latencyMs: number;
   tokenTtlSec: number;
   expireSyncToken: boolean;
+  /** Next authorize: 'deny' = user clicks Cancel (error=access_denied); 'partial' = user unticks the calendar box. */
+  consentNext: 'deny' | 'partial' | null;
 }
 
 export interface MockGoogleHandle {
@@ -47,6 +49,7 @@ export async function startMockGoogle(opts: MockGoogleOptions = {}): Promise<Moc
     latencyMs: 0,
     tokenTtlSec: opts.tokenTtlSec ?? 3600,
     expireSyncToken: false,
+    consentNext: null,
   });
   let config = defaultConfig();
   let seq = 0;
@@ -55,6 +58,7 @@ export async function startMockGoogle(opts: MockGoogleOptions = {}): Promise<Moc
   let codes = new Map<string, { clientId: string; redirectUri: string; challenge: string; method: string; email: string; scope: string; nonce?: string }>();
   let accessTokens = new Map<string, { email: string; expiresAt: number; scope: string }>();
   let refreshTokens = new Map<string, { email: string; scope: string }>();
+  let granted = new Map<string, Set<string>>(); // scopes already granted per user (include_granted_scopes)
   let requestLog: Array<{ method: string; url: string }> = [];
 
   const reset = () => {
@@ -63,6 +67,7 @@ export async function startMockGoogle(opts: MockGoogleOptions = {}): Promise<Moc
     epoch = Date.now().toString(36) + randomBytes(2).toString('hex');
     events = new Map();
     codes = new Map();
+    granted = new Map();
     accessTokens = new Map();
     refreshTokens = new Map();
     requestLog = [];
@@ -123,6 +128,21 @@ export async function startMockGoogle(opts: MockGoogleOptions = {}): Promise<Moc
     }
     const email = q.login_hint && q.login_hint.includes('@') ? q.login_hint : 'demo@example.com';
     if (q.auto === '1' || q.approve === '1') {
+      const consent = config.consentNext;
+      config.consentNext = null;
+      if (consent === 'deny') {
+        const d = new URL(q.redirect_uri);
+        d.searchParams.set('error', 'access_denied');
+        if (q.state) d.searchParams.set('state', q.state);
+        return reply.redirect(d.toString());
+      }
+      let asked = (q.scope ?? '').split(' ').filter(Boolean);
+      if (consent === 'partial') asked = asked.filter((x) => !x.includes('/auth/calendar'));
+      const set = granted.get(email) ?? new Set<string>();
+      if (q.include_granted_scopes === 'true') for (const x of set) if (!asked.includes(x)) asked.push(x);
+      for (const x of asked) set.add(x);
+      granted.set(email, set);
+      q.scope = asked.join(' ');
       const code = 'mock-code-' + randomBytes(12).toString('hex');
       codes.set(code, {
         clientId: q.client_id, redirectUri: q.redirect_uri, challenge: q.code_challenge,
@@ -207,7 +227,9 @@ export async function startMockGoogle(opts: MockGoogleOptions = {}): Promise<Moc
   await app.register(async (c) => {
     c.addHook('preHandler', async (req, reply) => {
       if (forcedFailure('calendar', reply)) return reply;
-      if (!bearer(req)) return gerr(reply, 401, 'Invalid Credentials', 'authError');
+      const b = bearer(req);
+      if (!b) return gerr(reply, 401, 'Invalid Credentials', 'authError');
+      if (!b.scope.includes('auth/calendar')) return gerr(reply, 403, 'Request had insufficient authentication scopes.', 'insufficientPermissions');
     });
 
     c.get('/calendar/v3/calendars/:cal/events', async (req, reply) => {
@@ -298,10 +320,11 @@ export async function startMockGoogle(opts: MockGoogleOptions = {}): Promise<Moc
 
   // ---- Test controls ----
   app.post('/__mock/config', async (req) => {
-    const b = (req.body ?? {}) as Partial<{ failNext: { status: number; count?: number; target?: 'calendar' | 'token' | 'all'; retryAfterSec?: number } | null; latencyMs: number; tokenTtlSec: number; expireSyncToken: boolean }>;
+    const b = (req.body ?? {}) as Partial<{ consentNext: 'deny' | 'partial' | null; failNext: { status: number; count?: number; target?: 'calendar' | 'token' | 'all'; retryAfterSec?: number } | null; latencyMs: number; tokenTtlSec: number; expireSyncToken: boolean }>;
     if ('failNext' in b) {
       config.failNext = b.failNext ? { status: b.failNext.status, count: b.failNext.count ?? 1, target: b.failNext.target ?? 'calendar', retryAfterSec: b.failNext.retryAfterSec } : null;
     }
+    if ('consentNext' in b) config.consentNext = b.consentNext ?? null;
     if (b.latencyMs !== undefined) config.latencyMs = b.latencyMs;
     if (b.tokenTtlSec !== undefined) config.tokenTtlSec = b.tokenTtlSec;
     if (b.expireSyncToken !== undefined) config.expireSyncToken = b.expireSyncToken;

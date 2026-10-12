@@ -3,7 +3,7 @@ import { batch, exec, many, one, q, type Db } from '../db/index.js';
 import { OAUTH_STATE_TTL_MS, cookieName, dropCookie, putCookie, userIdForSession, sessionIdFromRequest } from '../http/auth.js';
 import type { C } from '../http/types.js';
 import { startSession } from '../session.js';
-import { authorizeUrl, SCOPES, userinfoUrl, type GoogleCtx } from './config';
+import { authorizeUrl, CALENDAR_SCOPE, SIGNIN_SCOPES, userinfoUrl, type GoogleCtx } from './config';
 import { nonceFor, verifyIdToken, type IdClaims } from './idtoken';
 import { codeChallengeS256, generateCodeVerifier, generateState } from './pkce';
 import { doFetch, postForm, type TokenResponse } from './tokens';
@@ -15,29 +15,37 @@ export const apiError = (c: C, status: 400 | 401 | 500 | 502, code: string, mess
 
 const redirectUriOf = (ctx: GoogleCtx, c: C) => ctx.config.redirectUri || `${new URL(c.req.url).origin}/api/auth/callback`;
 
-/** GET /api/auth/login: create state + PKCE verifier, redirect to Google's authorize endpoint. */
-export async function startLogin(ctx: GoogleCtx, c: C): Promise<Response> {
+/**
+ * Create state + PKCE verifier and redirect to Google's authorize endpoint.
+ * 'signin' asks for identity scopes only; 'calendar' (signed-in users) adds calendar.events incrementally.
+ */
+export async function startOAuth(ctx: GoogleCtx, c: C, kind: 'signin' | 'calendar'): Promise<Response> {
   const { db, config: cfg } = ctx;
   if (!cfg.clientId) return apiError(c, 500, 'internal', 'GOOGLE_CLIENT_ID is not configured. See SETUP_GOOGLE.md.');
+  const sessionUser = await userIdForSession(db, sessionIdFromRequest(c));
+  if (kind === 'calendar' && !sessionUser) return apiError(c, 401, 'unauthorized', 'Sign in first');
   await exec(db, 'DELETE FROM oauth_states WHERE created_at < ?', Date.now() - OAUTH_STATE_TTL_MS);
   const state = generateState();
   const verifier = generateCodeVerifier();
-  await exec(db, 'INSERT INTO oauth_states (state, code_verifier, created_at, user_id) VALUES (?,?,?,?)',
-    state, verifier, Date.now(), await userIdForSession(db, sessionIdFromRequest(c)));
+  await exec(db, 'INSERT INTO oauth_states (state, code_verifier, created_at, user_id, kind) VALUES (?,?,?,?,?)',
+    state, verifier, Date.now(), sessionUser, kind);
 
   const url = new URL(authorizeUrl(cfg));
   const params: Record<string, string> = {
     client_id: cfg.clientId,
     redirect_uri: redirectUriOf(ctx, c),
     response_type: 'code',
-    scope: SCOPES.join(' '),
+    scope: kind === 'calendar' ? CALENDAR_SCOPE : SIGNIN_SCOPES.join(' '),
     state,
     nonce: await nonceFor(state),
     code_challenge: await codeChallengeS256(verifier),
     code_challenge_method: 'S256',
-    access_type: 'offline',
-    prompt: 'consent',
+    ...(kind === 'calendar' ? { include_granted_scopes: 'true', access_type: 'offline', prompt: 'consent' } : {}),
   };
+  if (kind === 'calendar') { // steer Google (and the mock) to the account that is signed in here
+    const hint = (await one<{ email: string }>(db, 'SELECT email FROM users WHERE id = ?', sessionUser))?.email;
+    if (hint && !hint.endsWith('@unknown.invalid')) params.login_hint = hint;
+  }
   if (cfg.demoMode) {
     params.auto = '1'; // mock only: skip the fake consent page
     const hint = c.req.query('email');
@@ -80,7 +88,7 @@ export async function saveAccount(ctx: GoogleCtx, userId: string, sub: string, e
     q(db,
       `INSERT INTO google_accounts (user_id, google_sub, email, access_token_enc, refresh_token_enc, expires_at, scope, calendar_id, sync_token, status, last_error)
        VALUES (?,?,?,?,?,?,?,?,?,?,NULL)`,
-      userId, sub, email, await encryptToken(tok.access_token, config.sessionSecret), refreshEnc, Date.now() + tok.expires_in * 1000, tok.scope ?? SCOPES.join(' '),
+      userId, sub, email, await encryptToken(tok.access_token, config.sessionSecret), refreshEnc, Date.now() + tok.expires_in * 1000, tok.scope ?? CALENDAR_SCOPE,
       same ? prev!.calendar_id : 'primary', same ? prev!.sync_token : null, 'idle'),
   ];
   if (!same) stmts.push(q(db, 'UPDATE reminders SET google_event_id = NULL, google_etag = NULL WHERE user_id = ?', userId));
@@ -98,16 +106,20 @@ export async function handleCallback(ctx: GoogleCtx, c: C): Promise<{ res: Respo
   const { db, config: cfg } = ctx;
   const oauthCookie = cookieName(c.var.ctx.config, 'rs_oauth');
   const fail = (status: 400 | 502, message: string) => { dropCookie(c, oauthCookie); return { res: apiError(c, status, status === 400 ? 'bad_request' : 'internal', message), userId: null }; };
-  const goto = (qs: string) => ({ res: c.redirect(`${cfg.postLoginRedirect}?${qs}`, 302), userId: null });
+  let kind: 'signin' | 'calendar' = 'signin';
+  // Calendar-step failures keep the user signed in and use their own query keys so the UI can say what happened.
+  const goto = (qs: string) => ({ res: c.redirect(`${cfg.postLoginRedirect}?${kind === 'calendar' ? qs.replace('auth_error=', 'calendar_error=') : qs}`, 302), userId: null });
 
   const state = c.req.query('state');
   const code = c.req.query('code');
   if (!state) return fail(400, 'Missing state');
-  const row = await one<{ code_verifier: string; created_at: number; user_id: string | null }>(db, 'SELECT code_verifier, created_at, user_id FROM oauth_states WHERE state = ?', state);
+  const row = await one<{ code_verifier: string; created_at: number; user_id: string | null; kind: string }>(db, 'SELECT code_verifier, created_at, user_id, kind FROM oauth_states WHERE state = ?', state);
   await exec(db, 'DELETE FROM oauth_states WHERE state = ?', state); // single use
   if (!row || Date.now() - row.created_at > OAUTH_STATE_TTL_MS) return fail(400, 'Invalid or expired state');
   if (getCookie(c, oauthCookie) !== state) return fail(400, 'State does not match this browser session');
   dropCookie(c, oauthCookie);
+  kind = row.kind === 'calendar' ? 'calendar' : 'signin';
+  if (kind === 'calendar' && (!row.user_id || (await userIdForSession(db, sessionIdFromRequest(c))) !== row.user_id)) return fail(400, 'Calendar connection must finish in the browser session that started it');
   const err = c.req.query('error');
   if (err) return goto(`auth_error=${encodeURIComponent(err)}`);
   if (!code) return fail(400, 'Missing authorization code');
@@ -127,6 +139,20 @@ export async function handleCallback(ctx: GoogleCtx, c: C): Promise<{ res: Respo
   }
   const tok = (await res.json()) as TokenResponse;
 
+  if (kind === 'calendar') {
+    // Granular consent: the user may have signed in again without ticking the calendar box.
+    if (!(tok.scope ?? '').split(' ').includes(CALENDAR_SCOPE)) return goto('auth_error=calendar_denied');
+    const user = (await one<{ google_sub: string | null; email: string }>(db, 'SELECT google_sub, email FROM users WHERE id = ?', row.user_id!))!;
+    let sub: string | undefined;
+    if (tok.id_token) {
+      try { sub = (await verifyIdToken(ctx, tok.id_token, state)).sub; }
+      catch (e) { ctx.log?.warn({ err: (e as Error).message }, 'id_token rejected'); return goto('auth_error=invalid_id_token'); }
+    }
+    if (sub && user.google_sub && sub !== user.google_sub) return goto('auth_error=account_mismatch'); // a different Google account than the one signed in
+    await saveAccount(ctx, row.user_id!, user.google_sub ?? sub ?? row.user_id!, user.email, tok);
+    return { res: c.redirect(`${cfg.postLoginRedirect}?calendar=connected`, 302), userId: row.user_id };
+  }
+
   let claims: IdClaims;
   try {
     if (tok.id_token) claims = await verifyIdToken(ctx, tok.id_token, state);
@@ -142,10 +168,10 @@ export async function handleCallback(ctx: GoogleCtx, c: C): Promise<{ res: Respo
   if (!claims.email) return goto('auth_error=no_email');
   if (claims.email_verified !== true) return goto('auth_error=email_unverified');
 
+  // Sign-in only: the user exists, but no Google tokens are kept (calendar tokens come from the separate calendar step).
   let userId: string;
   try {
     userId = await upsertUser(ctx, claims, row.user_id);
-    await saveAccount(ctx, userId, claims.sub, claims.email, tok);
   } catch (e) {
     if (/constraint/i.test((e as Error).message)) return goto('auth_error=account_conflict');
     throw e;

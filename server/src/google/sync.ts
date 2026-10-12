@@ -288,6 +288,28 @@ export async function disconnectAccount(ctx: GoogleCtx, userId: string): Promise
   return getSyncState(ctx, userId);
 }
 
+const PURGE_MAX_EVENTS = 40; // stays inside the Workers subrequest budget
+const PURGE_BUDGET_MS = 10_000;
+
+/** Account deletion: best-effort removal of the events this app created (bounded), then revoke the grant. Never throws. */
+export async function purgeGoogleData(ctx: GoogleCtx, userId: string): Promise<void> {
+  const acct = await getAccount(ctx, userId);
+  if (!acct) return;
+  const ids = (await many<{ id: string }>(ctx.db,
+    `SELECT google_event_id AS id FROM reminders WHERE user_id = ? AND google_event_id IS NOT NULL
+     UNION SELECT event_id FROM outbox WHERE user_id = ? AND op = 'delete' AND event_id IS NOT NULL`, userId, userId)).map((r) => r.id).slice(0, PURGE_MAX_EVENTS);
+  const stop = Date.now() + PURGE_BUDGET_MS;
+  for (const id of ids) {
+    if (Date.now() > stop) break;
+    try { await deleteEvent(ctx, userId, acct.calendar_id, id); }
+    catch (e) {
+      if (e instanceof GoogleHttpError) continue; // already gone or rejected: move on
+      break; // network or re-auth problem: give up on the rest
+    }
+  }
+  await revokeTokens(ctx, userId);
+}
+
 /** Switch target calendar: reset the sync cursor and re-push every synced reminder. */
 export async function changeCalendar(ctx: GoogleCtx, userId: string, calendarId: string): Promise<SyncState> {
   await batch(ctx.db, [

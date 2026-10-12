@@ -11,6 +11,7 @@ import { runSync } from './google/sync';
 import { PUBLIC_PATHS } from './http/auth.js';
 import { CSRF_MESSAGE, failsCsrf, isSafeMethod } from './http/csrf.js';
 import type { C, HonoEnv } from './http/types.js';
+import { accountRoutes } from './routes/account.js';
 import { miscRoutes } from './routes/misc.js';
 import { reminderRoutes } from './routes/reminders.js';
 import { templateRoutes } from './routes/templates.js';
@@ -138,7 +139,7 @@ export function createApp(deps: AppDeps = {}): Hono<HonoEnv> {
   // reusing a key on a different request never replays the wrong response.
   app.use('/api/*', async (c, next) => {
     const k = c.req.header('idempotency-key');
-    if (isSafeMethod(c.req.method) || !k || !c.var.user) return next();
+    if (isSafeMethod(c.req.method) || !k || !c.var.user || new URL(c.req.url).pathname === '/api/account') return next(); // never re-create rows for a deleted account
     const { db } = c.var.ctx;
     const fingerprint = await sha256hex(`${c.req.method} ${new URL(c.req.url).pathname}\n${JSON.stringify(c.var.body ?? null)}`);
     const key = `${c.var.user.id}:${k}:${fingerprint}`;
@@ -157,6 +158,7 @@ export function createApp(deps: AppDeps = {}): Hono<HonoEnv> {
 
   const api = new Hono<HonoEnv>();
   api.route('/', miscRoutes());
+  api.route('/', accountRoutes());
   api.route('/', reminderRoutes());
   api.route('/', templateRoutes());
   api.route('/', googleRoutes());

@@ -34,18 +34,39 @@ export async function makeHarness(over: { fetch?: typeof fetch; env?: Partial<En
   return { mock, db, app, google, net, mockCtl, mockState, close: async () => { await app.settle(); await mock.close(); } };
 }
 
-/** Runs the full browser-style login: /login -> mock authorize -> /callback. Returns the session cookie header. */
-export async function loginViaMock(h: Harness, email?: string): Promise<{ cookie: string; userId: string }> {
+/** Drives a started OAuth flow (the /api/auth/... redirect) through the mock and the callback; returns the callback response. */
+export async function followOAuth(h: Harness, start: { headers: Record<string, any> }, cookie = ''): Promise<{ res: Awaited<ReturnType<Harness['app']['inject']>>; location: URL }> {
+  const oauth = cookieOf(start.headers['set-cookie'], 'rs_oauth');
+  const authRes = await fetch(String(start.headers.location), { redirect: 'manual' });
+  const location = new URL(authRes.headers.get('location')!);
+  const res = await h.app.inject({ method: 'GET', url: location.pathname + location.search, headers: { cookie: [cookie, `rs_oauth=${oauth}`].filter(Boolean).join('; ') } });
+  return { res, location };
+}
+
+/** Step 1 only: sign in with Google (identity scopes). No calendar tokens exist afterwards. */
+export async function signInViaMock(h: Harness, email?: string): Promise<{ cookie: string; userId: string }> {
   const login = await h.app.inject({ method: 'GET', url: '/api/auth/login' + (email ? `?email=${encodeURIComponent(email)}` : '') });
   if (login.statusCode !== 302) throw new Error('login did not redirect: ' + login.body);
-  const oauthCookie = cookieOf(login.headers['set-cookie'], 'rs_oauth');
-  const authRes = await fetch(String(login.headers.location), { redirect: 'manual' });
-  const cb = new URL(authRes.headers.get('location')!);
-  const res = await h.app.inject({ method: 'GET', url: cb.pathname + cb.search, headers: { cookie: `rs_oauth=${oauthCookie}` } });
+  const { res } = await followOAuth(h, login);
   if (res.statusCode !== 302) throw new Error('callback failed: ' + res.body);
   const sid = cookieOf(res.headers['set-cookie'], 'rs_session');
   const row = (await one<{ user_id: string }>(h.db, 'SELECT user_id FROM sessions WHERE id = ?', sid))!;
   return { cookie: `rs_session=${sid}`, userId: row.user_id };
+}
+
+/** Step 2: the signed-in user connects Google Calendar. */
+export async function connectCalendarViaMock(h: Harness, cookie: string) {
+  const start = await h.app.inject({ method: 'GET', url: '/api/auth/google/calendar', headers: { cookie } });
+  if (start.statusCode !== 302) throw new Error('calendar start did not redirect: ' + start.body);
+  return followOAuth(h, start, cookie);
+}
+
+/** Both steps: sign in, then connect the calendar. Returns the session cookie. */
+export async function loginViaMock(h: Harness, email?: string): Promise<{ cookie: string; userId: string }> {
+  const s = await signInViaMock(h, email);
+  const { res } = await connectCalendarViaMock(h, s.cookie);
+  if (res.statusCode !== 302) throw new Error('calendar callback failed: ' + res.body);
+  return s;
 }
 
 export function cookieOf(setCookie: string | string[] | number | undefined, name: string): string {
