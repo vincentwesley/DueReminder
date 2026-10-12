@@ -1,0 +1,21 @@
+# Copy to .dev.vars (gitignored). Names only here; wrangler dev reads it. `npm run dev` creates it with a random SESSION_SECRET if missing.
+NODE_ENV=development
+DEMO_MODE=1
+INSECURE_COOKIES=1
+# 32+ random characters, e.g.  node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+SESSION_SECRET=
+DEFAULT_TIMEZONE=UTC
+# Mock Google (npm run mock). Real Google: https://accounts.google.com / https://www.googleapis.com with DEMO_MODE=0.
+GOOGLE_AUTH_BASE=http://localhost:4010
+GOOGLE_API_BASE=http://localhost:4010
+GOOGLE_CLIENT_ID=mock-client-id
+GOOGLE_CLIENT_SECRET=mock-client-secret
+# wrangler dev serves API and UI on :4000; Vite (:5173) proxies /api to it.
+OAUTH_REDIRECT_URI=http://localhost:5173/api/auth/callback
+POST_LOGIN_REDIRECT=http://localhost:5173/
+# 1 = demo login pre-links the mock Google account (default 0 so the Connect flow is testable)
+# DEMO_PRELINK=0
+# 0 = no background sync kick after writes (cron still syncs)
+# AUTO_SYNC=1
+# AUTH_RATE_LIMIT=30
+# BODY_LIMIT_BYTES=262144

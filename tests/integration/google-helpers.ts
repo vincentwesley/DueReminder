@@ -1,47 +1,37 @@
-import { randomUUID } from 'node:crypto';
-import Fastify, { type FastifyInstance } from 'fastify';
 import { startMockGoogle, type MockGoogleHandle } from '../../mock-google/index';
-import { openDb, type Db } from '../../server/src/db/index';
-import { registerGoogle, type GoogleApi } from '../../server/src/google/index';
-import type { GoogleConfig } from '../../server/src/google/config';
+import { ctxFactory } from '../../server/src/app';
+import type { Env } from '../../server/src/config';
+import { exec, one, type Db } from '../../server/src/db/index';
+import { getSyncState, runSync } from '../../server/src/google/sync';
+import type { GoogleCtx } from '../../server/src/google/config';
+import { freshDb, makeInject, testEnv } from './harness';
+import { createApp } from '../../server/src/app';
 
 export interface Harness {
   mock: MockGoogleHandle;
   db: Db;
-  app: FastifyInstance;
-  google: GoogleApi;
+  app: ReturnType<typeof makeInject>;
+  google: { ctx: GoogleCtx; runSync: (userId: string) => ReturnType<typeof runSync>; getSyncState: (userId: string) => ReturnType<typeof getSyncState> };
   net: { offline: boolean };
   mockCtl: (path: string, body?: unknown) => Promise<any>;
   mockState: () => Promise<any>;
   close: () => Promise<void>;
 }
 
-export async function makeHarness(over: Partial<GoogleConfig> = {}): Promise<Harness> {
+export async function makeHarness(over: { fetch?: typeof fetch; env?: Partial<Env> } = {}): Promise<Harness> {
   const mock = await startMockGoogle({ port: 0 });
-  const db = openDb(':memory:');
-  const app = Fastify();
+  const db = await freshDb();
   const net = { offline: false };
-  const google = await registerGoogle(app, {
-    db,
-    config: {
-      clientId: 'mock-client-id',
-      clientSecret: 'mock-client-secret',
-      sessionSecret: 'test-secret-test-secret-test-secret-0123',
-      demoMode: true,
-      authBase: mock.url,
-      apiBase: mock.url,
-      redirectUri: 'http://localhost:4000/api/auth/callback',
-      pollMs: 0,
-      debounceMs: 0,
-      fetch: ((...a: Parameters<typeof fetch>) => (net.offline ? Promise.reject(new TypeError('fetch failed')) : fetch(...a))) as typeof fetch,
-      ...over,
-    },
-  });
-  await app.ready();
+  const base = over.fetch ?? fetch;
+  const deps = { fetch: ((...a: Parameters<typeof fetch>) => (net.offline ? Promise.reject(new TypeError('fetch failed')) : base(...a))) as typeof fetch };
+  const env = testEnv(db, { GOOGLE_AUTH_BASE: mock.url, GOOGLE_API_BASE: mock.url, AUTH_RATE_LIMIT: '100000', ...over.env });
+  const app = makeInject(createApp(deps), env);
+  const ctx = ctxFactory(deps)(env);
+  const google = { ctx: ctx.google, runSync: (uid: string) => runSync(ctx.google, uid), getSyncState: (uid: string) => getSyncState(ctx.google, uid) };
   const mockCtl = async (path: string, body?: unknown) =>
     (await fetch(mock.url + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) })).json();
   const mockState = async () => (await fetch(mock.url + '/__mock/state')).json();
-  return { mock, db, app, google, net, mockCtl, mockState, close: async () => { await app.close(); await mock.close(); db.close(); } };
+  return { mock, db, app, google, net, mockCtl, mockState, close: async () => { await app.settle(); await mock.close(); } };
 }
 
 /** Runs the full browser-style login: /login -> mock authorize -> /callback. Returns the session cookie header. */
@@ -54,7 +44,7 @@ export async function loginViaMock(h: Harness, email?: string): Promise<{ cookie
   const res = await h.app.inject({ method: 'GET', url: cb.pathname + cb.search, headers: { cookie: `rs_oauth=${oauthCookie}` } });
   if (res.statusCode !== 302) throw new Error('callback failed: ' + res.body);
   const sid = cookieOf(res.headers['set-cookie'], 'rs_session');
-  const row = h.db.prepare('SELECT user_id FROM sessions WHERE id = ?').get(sid) as { user_id: string };
+  const row = (await one<{ user_id: string }>(h.db, 'SELECT user_id FROM sessions WHERE id = ?', sid))!;
   return { cookie: `rs_session=${sid}`, userId: row.user_id };
 }
 
@@ -67,20 +57,18 @@ export function cookieOf(setCookie: string | string[] | number | undefined, name
   return '';
 }
 
-export function addReminder(db: Db, userId: string, o: Partial<Record<string, unknown>> = {}): string {
-  const id = randomUUID();
+export async function addReminder(db: Db, userId: string, o: Partial<Record<string, unknown>> = {}): Promise<string> {
+  const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  const r = {
+  const r: Record<string, unknown> = {
     id, user_id: userId, list_id: 'list-1', title: 'Pay rent', notes: '', status: 'open', priority: 0,
     due_at: new Date(Date.now() + 86_400_000).toISOString(), all_day: 0, timezone: 'UTC', rrule: null, calendar_sync: 1,
     created_at: now, updated_at: now, version: 1, ...o,
   };
-  db.prepare(
-    `INSERT INTO reminders (id,user_id,list_id,title,notes,status,priority,due_at,all_day,timezone,rrule,calendar_sync,created_at,updated_at,version)
-     VALUES (@id,@user_id,@list_id,@title,@notes,@status,@priority,@due_at,@all_day,@timezone,@rrule,@calendar_sync,@created_at,@updated_at,@version)`,
-  ).run(r);
+  const cols = ['id', 'user_id', 'list_id', 'title', 'notes', 'status', 'priority', 'due_at', 'all_day', 'timezone', 'rrule', 'calendar_sync', 'created_at', 'updated_at', 'version'];
+  await exec(db, `INSERT INTO reminders (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`, ...cols.map((c) => r[c]));
   return id;
 }
 
-export const reminder = (db: Db, id: string) => db.prepare('SELECT * FROM reminders WHERE id = ?').get(id) as any;
+export const reminder = (db: Db, id: string) => one<any>(db, 'SELECT * FROM reminders WHERE id = ?', id);
 export const auth = (cookie: string) => ({ cookie, 'x-requested-with': 'fetch' });

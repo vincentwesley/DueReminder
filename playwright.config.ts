@@ -9,7 +9,7 @@ export default defineConfig({
   timeout: 45_000,
   expect: { timeout: 8_000 },
   fullyParallel: false,
-  workers: 1, // one shared in-memory server + mock
+  workers: 1, // one shared local-D1 server + mock
   retries: process.env.CI ? 1 : 0,
   reporter: [['list']],
   use: {
@@ -30,25 +30,12 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
-      command: 'npx vite build --config web/vite.config.ts && npx tsx server/src/index.ts',
+      // wrangler dev (local D1, DEMO_MODE=1) serving API + built UI; see scripts/e2e-server.mjs for the vars.
+      command: 'node scripts/e2e-server.mjs',
       url: `http://localhost:${APP}/api/health`,
+      env: { E2E_APP_PORT: String(APP), E2E_MOCK_PORT: String(MOCK) },
       reuseExistingServer: false,
-      timeout: 120_000,
-      env: {
-        API_PORT: String(APP),
-        WEB_PORT: String(APP),
-        DEMO_MODE: '1',
-        DEMO_PRELINK: '0',
-        AUTH_RATE_LIMIT: '10000',
-        DB_PATH: ':memory:',
-        LOG: '0',
-        SESSION_SECRET: 'e2e-session-secret-0123456789abcdef',
-        DEFAULT_TIMEZONE: 'UTC',
-        GOOGLE_AUTH_BASE: `http://localhost:${MOCK}`,
-        GOOGLE_API_BASE: `http://localhost:${MOCK}`,
-        OAUTH_REDIRECT_URI: `http://localhost:${APP}/api/auth/callback`,
-        POST_LOGIN_REDIRECT: '/',
-      },
+      timeout: 180_000,
     },
   ],
 });

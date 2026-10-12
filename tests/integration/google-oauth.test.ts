@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { decryptToken } from '../../server/src/google/crypto';
 import { getAccessToken } from '../../server/src/google/tokens';
 import { auth, cookieOf, loginViaMock, makeHarness, type Harness } from './google-helpers';
+import { exec, one } from '../../server/src/db/index';
 
 let h: Harness;
 beforeAll(async () => { h = await makeHarness(); });
@@ -35,13 +36,13 @@ describe('google OAuth (PKCE) against mock', () => {
   });
 
   it('stores tokens encrypted at rest', async () => {
-    const row = h.db.prepare('SELECT * FROM google_accounts').get() as any;
-    expect(row.access_token_enc).toMatch(/^v1:/);
-    expect(row.refresh_token_enc).toMatch(/^v1:/);
+    const row = (await one(h.db, 'SELECT * FROM google_accounts')) as any;
+    expect(row.access_token_enc).toMatch(/^v2:/);
+    expect(row.refresh_token_enc).toMatch(/^v2:/);
     expect(row.access_token_enc).not.toContain('mock-at-');
-    const plain = decryptToken(row.refresh_token_enc, 'test-secret-test-secret-test-secret-0123');
+    const plain = await decryptToken(row.refresh_token_enc, 'test-secret-test-secret-test-secret-0123');
     expect(plain).toMatch(/^mock-rt-/);
-    expect(() => decryptToken(row.refresh_token_enc, 'another-secret-another-secret-xx')).toThrow();
+    await expect(decryptToken(row.refresh_token_enc, 'another-secret-another-secret-xx')).rejects.toThrow();
   });
 
   it('rejects replayed, unknown and cross-browser state', async () => {
@@ -81,8 +82,8 @@ describe('google OAuth (PKCE) against mock', () => {
 
   it('refreshes an expired access token once (single-flight) and persists it', async () => {
     const { userId } = await loginViaMock(h, 'refresh@example.com');
-    const before = decryptToken((h.db.prepare('SELECT access_token_enc e FROM google_accounts WHERE user_id = ?').get(userId) as any).e, 'test-secret-test-secret-test-secret-0123');
-    h.db.prepare('UPDATE google_accounts SET expires_at = ? WHERE user_id = ?').run(Date.now() + 30_000, userId); // inside the 60s skew window
+    const before = await decryptToken(((await one(h.db, 'SELECT access_token_enc e FROM google_accounts WHERE user_id = ?', userId)) as any).e, 'test-secret-test-secret-test-secret-0123');
+    (await exec(h.db, 'UPDATE google_accounts SET expires_at = ? WHERE user_id = ?', Date.now() + 30_000, userId)); // inside the 60s skew window
     const count = async () => ((await h.mockState()).requests as any[]).filter((r) => r.url === '/token').length;
     const c0 = await count();
     const toks = await Promise.all([1, 2, 3].map(() => getAccessToken(h.google.ctx, userId)));
@@ -97,7 +98,7 @@ describe('google OAuth (PKCE) against mock', () => {
   it('marks reauth_required when the grant is revoked, and stops syncing', async () => {
     const { cookie, userId } = await loginViaMock(h, 'revoked@example.com');
     await h.mockCtl('/__mock/revoke-all');
-    h.db.prepare('UPDATE google_accounts SET expires_at = 0 WHERE user_id = ?').run(userId);
+    (await exec(h.db, 'UPDATE google_accounts SET expires_at = 0 WHERE user_id = ?', userId));
     const run = await h.app.inject({ method: 'POST', url: '/api/sync/run', headers: auth(cookie) });
     expect(run.json()).toMatchObject({ status: 'reauth_required', connected: true });
     expect(run.json().lastError).toMatch(/reconnect/i);
@@ -111,10 +112,10 @@ describe('google OAuth (PKCE) against mock', () => {
   it('requires session and CSRF header on sync routes; logout and disconnect work', async () => {
     const { cookie, userId } = await loginViaMock(h, 'bye@example.com');
     expect((await h.app.inject({ method: 'GET', url: '/api/sync/state' })).statusCode).toBe(401);
-    expect((await h.app.inject({ method: 'POST', url: '/api/sync/run', headers: { cookie } })).statusCode).toBe(400);
+    expect((await h.app.inject({ method: 'POST', url: '/api/sync/run', headers: { cookie } })).statusCode).toBe(403);
     const disc = await h.app.inject({ method: 'POST', url: '/api/sync/disconnect', headers: auth(cookie) });
     expect(disc.json()).toMatchObject({ connected: false, status: 'disconnected' });
-    expect(h.db.prepare('SELECT COUNT(*) n FROM google_accounts WHERE user_id = ?').get(userId)).toEqual({ n: 0 });
+    expect((await one(h.db, 'SELECT COUNT(*) n FROM google_accounts WHERE user_id = ?', userId))).toEqual({ n: 0 });
     const out = await h.app.inject({ method: 'POST', url: '/api/auth/logout', headers: auth(cookie) });
     expect(out.statusCode).toBe(204);
     expect((await h.app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } })).statusCode).toBe(401);

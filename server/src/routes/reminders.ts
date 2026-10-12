@@ -1,108 +1,79 @@
-import type { FastifyInstance } from 'fastify';
+import { Hono } from 'hono';
 import type { ReminderCreate, ReminderPatch } from '../../../shared/types.js';
 import { QuickAddSchema, ReminderCreateSchema, ReminderPatchSchema, ReminderQuerySchema, SnoozeSchema, SubtaskInputSchema, SubtaskPatchSchema } from '../../../shared/schemas.js';
+import { badRequest } from '../errors.js';
+import { idParam, uidOf } from '../http/auth.js';
+import type { HonoEnv } from '../http/types.js';
 import { parseQuickAdd } from '../nlp/quickAdd.js';
 import { createList, findListByName, findOrCreateTag } from '../services/lists.js';
 import {
-  completeReminder, createReminder, deleteReminder, dueNotifications, getReminder, listReminders, snoozeReminder,
-  editSubtasks, subtaskOps, uncompleteReminder, updateReminder, type Ctx,
+  completeReminder, createReminder, deleteReminder, dueNotifications, editSubtasks, getReminder, listReminders, snoozeReminder,
+  subtaskOps, uncompleteReminder, updateReminder,
 } from '../services/reminders.js';
 import { isValidTz } from '../services/tz.js';
-import { AppError, badRequest } from '../errors.js';
-import { idParam, uidOf } from '../http/auth.js';
 
-export function reminderRoutes(app: FastifyInstance, ctx: Ctx) {
-  const uid = uidOf;
-  const idOf = idParam;
+export function reminderRoutes(): Hono<HonoEnv> {
+  const app = new Hono<HonoEnv>();
 
-  app.get('/reminders', async (req) => {
-    const q = ReminderQuerySchema.parse(req.query);
-    return listReminders(ctx, uid(req), { ...q, tz: q.tz ?? (req.headers['x-timezone'] as string | undefined) });
+  app.get('/reminders', async (c) => {
+    const q = ReminderQuerySchema.parse(c.req.query());
+    return c.json(await listReminders(c.var.ctx, uidOf(c), { ...q, tz: q.tz ?? c.req.header('x-timezone') }));
   });
 
   // Registered before /reminders/:id so "quick-add" and "due" never match :id.
-  app.post('/reminders/quick-add', async (req, reply) => {
-    const body = QuickAddSchema.parse(req.body);
-    const preview = (req.query as { preview?: string }).preview;
+  app.post('/reminders/quick-add', async (c) => {
+    const { ctx } = c.var;
+    const body = QuickAddSchema.parse(c.var.body);
+    const preview = c.req.query('preview');
     const timezone = body.timezone ?? ctx.config.defaultTimezone;
     if (!isValidTz(timezone)) throw badRequest('Invalid timezone');
     const parsed = parseQuickAdd(body.text, { now: body.now ? new Date(body.now) : new Date(), timezone });
-    if (preview === '1' || preview === 'true') return { parsed };
-    const userId = uid(req);
+    if (preview === '1' || preview === 'true') return c.json({ parsed });
+    const userId = uidOf(c);
     let listId: string | undefined;
-    if (parsed.listName) listId = (findListByName(ctx, userId, parsed.listName) ?? createList(ctx, userId, { name: parsed.listName })).id;
-    const tagIds = parsed.tags.map((t) => findOrCreateTag(ctx, userId, t).id);
+    if (parsed.listName) listId = ((await findListByName(ctx, userId, parsed.listName)) ?? (await createList(ctx, userId, { name: parsed.listName }))).id;
+    const tagIds: string[] = [];
+    for (const t of parsed.tags) tagIds.push((await findOrCreateTag(ctx, userId, t)).id);
     const input: ReminderCreate = {
       title: parsed.title, dueAt: parsed.dueAt, allDay: parsed.allDay, rrule: parsed.rrule, priority: parsed.priority, tagIds, timezone,
       ...(listId ? { listId } : {}),
     };
-    const reminder = createReminder(ctx, userId, input);
-    return reply.code(201).send({ parsed, reminder });
+    return c.json({ parsed, reminder: await createReminder(ctx, userId, input) }, 201);
   });
 
-  app.get('/reminders/due', async (req) => {
-    const { since } = req.query as { since?: string };
+  app.get('/reminders/due', async (c) => {
+    const since = c.req.query('since');
     const now = new Date();
     const s = since ? new Date(since) : new Date(now.getTime() - 3600_000);
     if (Number.isNaN(s.getTime())) throw badRequest('Invalid since');
-    return { now: now.toISOString(), items: dueNotifications(ctx, uid(req), s, now) };
+    return c.json({ now: now.toISOString(), items: await dueNotifications(c.var.ctx, uidOf(c), s, now) });
   });
 
-  app.get('/reminders/:id', async (req) => getReminder(ctx, uid(req), idOf(req)));
+  app.get('/reminders/:id', async (c) => c.json(await getReminder(c.var.ctx, uidOf(c), idParam(c))));
 
-  app.post('/reminders', async (req, reply) => {
-    const body = ReminderCreateSchema.parse(req.body) as ReminderCreate;
-    return reply.code(201).send(createReminder(ctx, uid(req), body));
-  });
+  app.post('/reminders', async (c) => c.json(await createReminder(c.var.ctx, uidOf(c), ReminderCreateSchema.parse(c.var.body) as ReminderCreate), 201));
 
-  app.patch('/reminders/:id', async (req) => updateReminder(ctx, uid(req), idOf(req), ReminderPatchSchema.parse(req.body) as ReminderPatch));
-  app.post('/reminders/:id/complete', async (req) => completeReminder(ctx, uid(req), idOf(req)));
-  app.post('/reminders/:id/uncomplete', async (req) => uncompleteReminder(ctx, uid(req), idOf(req)));
-  app.post('/reminders/:id/snooze', async (req) => snoozeReminder(ctx, uid(req), idOf(req), SnoozeSchema.parse(req.body)));
-  app.post('/reminders/:id/subtasks', async (req, reply) => {
-    const body = SubtaskInputSchema.parse(req.body);
-    return reply.code(201).send(editSubtasks(ctx, uid(req), idOf(req), (db) => subtaskOps.addSubtask(db, idOf(req), body)));
+  app.patch('/reminders/:id', async (c) => c.json(await updateReminder(c.var.ctx, uidOf(c), idParam(c), ReminderPatchSchema.parse(c.var.body) as ReminderPatch)));
+  app.post('/reminders/:id/complete', async (c) => c.json(await completeReminder(c.var.ctx, uidOf(c), idParam(c))));
+  app.post('/reminders/:id/uncomplete', async (c) => c.json(await uncompleteReminder(c.var.ctx, uidOf(c), idParam(c))));
+  app.post('/reminders/:id/snooze', async (c) => c.json(await snoozeReminder(c.var.ctx, uidOf(c), idParam(c), SnoozeSchema.parse(c.var.body))));
+  app.post('/reminders/:id/subtasks', async (c) => {
+    const body = SubtaskInputSchema.parse(c.var.body);
+    return c.json(await editSubtasks(c.var.ctx, uidOf(c), idParam(c), (db) => subtaskOps.addSubtask(db, idParam(c), body)), 201);
   });
-  app.patch('/reminders/:id/subtasks/:sid', async (req) => {
-    const body = SubtaskPatchSchema.parse(req.body);
-    const sid = (req.params as { sid: string }).sid;
-    return editSubtasks(ctx, uid(req), idOf(req), (db) => subtaskOps.patchSubtask(db, idOf(req), sid, body));
+  app.patch('/reminders/:id/subtasks/:sid', async (c) => {
+    const body = SubtaskPatchSchema.parse(c.var.body);
+    const sid = c.req.param('sid');
+    return c.json(await editSubtasks(c.var.ctx, uidOf(c), idParam(c), (db) => subtaskOps.patchSubtask(db, idParam(c), sid, body)));
   });
-  app.delete('/reminders/:id/subtasks/:sid', async (req) => {
-    const sid = (req.params as { sid: string }).sid;
-    return editSubtasks(ctx, uid(req), idOf(req), (db) => subtaskOps.removeSubtask(db, idOf(req), sid));
+  app.delete('/reminders/:id/subtasks/:sid', async (c) => {
+    const sid = c.req.param('sid');
+    return c.json(await editSubtasks(c.var.ctx, uidOf(c), idParam(c), (db) => subtaskOps.removeSubtask(db, idParam(c), sid)));
   });
-  app.delete('/reminders/:id', async (req, reply) => {
-    deleteReminder(ctx, uid(req), idOf(req));
-    return reply.code(204).send();
+  app.delete('/reminders/:id', async (c) => {
+    await deleteReminder(c.var.ctx, uidOf(c), idParam(c));
+    return c.body(null, 204);
   });
 
-  // SSE stream of due reminders: `event: due` with a Reminder JSON; a `: ping` comment every 25s.
-  const streams = new Map<string, number>();
-  app.get('/notifications/stream', (req, reply) => {
-    const userId = uid(req);
-    const open = streams.get(userId) ?? 0;
-    if (open >= ctx.config.maxStreamsPerUser) throw new AppError(429, 'rate_limited', 'Too many open notification streams');
-    streams.set(userId, open + 1);
-    reply.hijack();
-    const res = reply.raw;
-    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-    let last = new Date();
-    let ticks = 0;
-    const tick = () => {
-      const now = new Date();
-      try {
-        for (const r of dueNotifications(ctx, userId, last, now)) res.write(`event: due\ndata: ${JSON.stringify(r)}\n\n`);
-        if (++ticks % 5 === 0) res.write(': ping\n\n');
-      } catch { /* db closed during shutdown */ }
-      last = now;
-    };
-    res.write(': connected\n\n');
-    const timer = setInterval(tick, 5000);
-    req.raw.on('close', () => {
-      clearInterval(timer);
-      const n = (streams.get(userId) ?? 1) - 1;
-      if (n <= 0) streams.delete(userId); else streams.set(userId, n);
-    });
-  });
+  return app;
 }

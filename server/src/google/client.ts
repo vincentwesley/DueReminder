@@ -47,7 +47,7 @@ export async function calendarCall<T = unknown>(ctx: GoogleCtx, userId: string, 
     });
     if (res.status === 401) {
       if (attempt === 0) continue;
-      markReauth(ctx, userId, 'Google rejected credentials after refresh; reconnect required');
+      await markReauth(ctx, userId, 'Google rejected credentials after refresh; reconnect required');
       throw new ReauthRequiredError();
     }
     if (!res.ok) {

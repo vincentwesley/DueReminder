@@ -1,7 +1,6 @@
-import rrulePkg from 'rrule';
+import { RRule } from 'rrule';
 import { fromFloating, toFloating, wallOf } from './tz.js';
 
-const { RRule } = rrulePkg;
 
 /** Strips an optional "RRULE:" prefix and validates; throws on invalid input. */
 export function normalizeRrule(input: string): string {

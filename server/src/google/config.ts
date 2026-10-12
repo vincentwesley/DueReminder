@@ -1,9 +1,7 @@
-import type { Database } from 'better-sqlite3';
 import { isStrict, sessionSecretProblem } from '../config.js';
+import type { Db } from '../db/index.js';
 
 export const SCOPES = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/calendar.events'];
-export { SESSION_COOKIE } from '../http/auth.js';
-export const OAUTH_COOKIE = 'rs_oauth';
 
 export interface GoogleConfig {
   clientId: string;
@@ -14,48 +12,33 @@ export interface GoogleConfig {
   authBase: string;
   /** e.g. http://localhost:4010 (mock) or https://www.googleapis.com */
   apiBase: string;
+  /** Empty = derive `<request origin>/api/auth/callback`. */
   redirectUri: string;
   tokenUrl: string;
   revokeUrl: string;
   /** Where to send the browser after login. */
   postLoginRedirect: string;
-  secureCookies: boolean;
-  /** Background poll interval; 0 disables the poller. */
-  pollMs: number;
-  /** Debounce after local writes; 0 disables auto-sync on write. */
-  debounceMs: number;
   /** Verify id_token signature via JWKS (real Google only). */
   verifyIdTokenSignature: boolean;
   requestTimeoutMs: number;
-  /** Optional hook to create the default list or seed data for a newly created user. */
-  onUserCreated?: (db: Database, userId: string) => void;
   fetch?: typeof fetch;
 }
 
+/** Subset of the Worker env this module reads. */
+export type GoogleEnv = Partial<Record<'GOOGLE_AUTH_BASE' | 'GOOGLE_API_BASE' | 'GOOGLE_CLIENT_ID' | 'GOOGLE_CLIENT_SECRET' | 'GOOGLE_TOKEN_URL' | 'GOOGLE_REVOKE_URL' | 'OAUTH_REDIRECT_URI' | 'POST_LOGIN_REDIRECT' | 'SESSION_SECRET' | 'DEMO_MODE' | 'NODE_ENV', string>>;
+
 const trimSlash = (s: string) => s.replace(/\/+$/, '');
 
-/** Merge explicit config over environment defaults. Accepts extra keys (the app config may be a superset). */
-export function resolveGoogleConfig(partial: Partial<GoogleConfig> | Record<string, unknown> = {}, env: NodeJS.ProcessEnv = process.env): GoogleConfig {
-  const raw = partial as Partial<GoogleConfig> & Record<string, unknown>;
-  // Accept the app config naming (googleClientId, oauthRedirectUri, ...) as well as the Google module's own.
-  const p: Partial<GoogleConfig> = {
-    ...raw,
-    clientId: raw.clientId ?? (raw.googleClientId as string | undefined),
-    clientSecret: raw.clientSecret ?? (raw.googleClientSecret as string | undefined),
-    authBase: raw.authBase ?? (raw.googleAuthBase as string | undefined),
-    apiBase: raw.apiBase ?? (raw.googleApiBase as string | undefined),
-    redirectUri: raw.redirectUri ?? (raw.oauthRedirectUri as string | undefined),
-    secureCookies: raw.secureCookies ?? (raw.nodeEnv === undefined ? undefined : raw.nodeEnv === 'production'),
-  };
+/** Merge explicit config over environment defaults. */
+export function resolveGoogleConfig(p: Partial<GoogleConfig> & { nodeEnv?: string }, env: GoogleEnv = {}): GoogleConfig {
   const demoMode = p.demoMode ?? (env.DEMO_MODE === '1' || env.DEMO_MODE === 'true');
-  const mockPort = env.MOCK_GOOGLE_PORT ?? '4010';
-  const authBase = trimSlash(p.authBase ?? env.GOOGLE_AUTH_BASE ?? `http://localhost:${mockPort}`);
-  const apiBase = trimSlash(p.apiBase ?? env.GOOGLE_API_BASE ?? `http://localhost:${mockPort}`);
+  const authBase = trimSlash(p.authBase ?? env.GOOGLE_AUTH_BASE ?? 'http://localhost:4010');
+  const apiBase = trimSlash(p.apiBase ?? env.GOOGLE_API_BASE ?? 'http://localhost:4010');
   const realGoogle = /(^|\/\/)accounts\.google\.com$/.test(authBase);
   if (demoMode && realGoogle) {
     throw new Error('DEMO_MODE=1 must not point GOOGLE_AUTH_BASE at real Google. Use the mock or set DEMO_MODE=0.');
   }
-  const nodeEnv = (raw.nodeEnv as string | undefined) ?? env.NODE_ENV ?? 'development';
+  const nodeEnv = p.nodeEnv ?? env.NODE_ENV ?? 'development';
   if (!demoMode && !realGoogle) {
     throw new Error('DEMO_MODE=0 requires GOOGLE_AUTH_BASE=https://accounts.google.com; a non-Google auth base is only allowed in demo mode against the local mock.');
   }
@@ -77,22 +60,18 @@ export function resolveGoogleConfig(partial: Partial<GoogleConfig> | Record<stri
     demoMode,
     authBase,
     apiBase,
-    redirectUri: p.redirectUri ?? env.OAUTH_REDIRECT_URI ?? `http://localhost:${env.API_PORT ?? '4000'}/api/auth/callback`,
+    redirectUri: p.redirectUri ?? env.OAUTH_REDIRECT_URI ?? '',
     tokenUrl: p.tokenUrl ?? env.GOOGLE_TOKEN_URL ?? (realGoogle ? 'https://oauth2.googleapis.com/token' : `${authBase}/token`),
     revokeUrl: p.revokeUrl ?? env.GOOGLE_REVOKE_URL ?? (realGoogle ? 'https://oauth2.googleapis.com/revoke' : `${authBase}/revoke`),
     postLoginRedirect: p.postLoginRedirect ?? env.POST_LOGIN_REDIRECT ?? '/',
-    secureCookies: p.secureCookies ?? env.NODE_ENV === 'production',
-    pollMs: p.pollMs ?? 60_000,
-    debounceMs: p.debounceMs ?? 2_000,
     verifyIdTokenSignature,
     requestTimeoutMs: p.requestTimeoutMs ?? 15_000,
-    onUserCreated: p.onUserCreated,
     fetch: p.fetch,
   };
 }
 
 export interface GoogleCtx {
-  db: Database;
+  db: Db;
   config: GoogleConfig;
   log?: { info: (...a: unknown[]) => void; warn: (...a: unknown[]) => void; error: (...a: unknown[]) => void };
 }

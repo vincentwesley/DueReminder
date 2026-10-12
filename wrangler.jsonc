@@ -1,0 +1,33 @@
+// Cloudflare Worker + D1. Secrets (never committed): SESSION_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET -> `wrangler secret put <NAME>`.
+// Local dev reads .dev.vars (see .dev.vars.example).
+{
+  "name": "due-reminder",
+  "main": "server/src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      // Placeholder: run `npx wrangler d1 create due-reminder` and paste the printed database_id here (do not commit a real one).
+      "database_name": "due-reminder",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "assets": {
+    "directory": "./web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // The Worker serves every request so it can add the security headers and a CSP that hashes the inline scripts.
+    "run_worker_first": true
+  },
+  // Background Google Calendar sync (users with a live session, bounded batch per run).
+  "triggers": { "crons": ["* * * * *"] },
+  // Production defaults; .dev.vars overrides them locally.
+  "vars": {
+    "NODE_ENV": "production",
+    "DEMO_MODE": "0",
+    "GOOGLE_AUTH_BASE": "https://accounts.google.com",
+    "GOOGLE_API_BASE": "https://www.googleapis.com"
+  },
+  "observability": { "enabled": true }
+}

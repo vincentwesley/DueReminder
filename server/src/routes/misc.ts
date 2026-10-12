@@ -1,73 +1,64 @@
-import type { FastifyInstance } from 'fastify';
-import type { SyncState } from '../../../shared/types.js';
+import { Hono } from 'hono';
 import { ListCreateSchema, ListPatchSchema, TagCreateSchema } from '../../../shared/schemas.js';
-import { AppError, notFound } from '../errors.js';
-import { createList, createTag, deleteList, deleteTag, listLists, listTags, updateList } from '../services/lists.js';
-import { defaultListId, type Ctx } from '../services/reminders.js';
-import { seedDemoData } from '../services/demo.js';
+import { batch, exec, q } from '../db/index.js';
+import { notFound } from '../errors.js';
 import { idParam, uidOf } from '../http/auth.js';
+import type { HonoEnv } from '../http/types.js';
+import { seedDemoData } from '../services/demo.js';
+import { createList, createTag, deleteList, deleteTag, listLists, listTags, updateList } from '../services/lists.js';
+import { defaultListId } from '../services/reminders.js';
 import { endSession, startSession, upsertUser } from '../session.js';
 
+export function miscRoutes(): Hono<HonoEnv> {
+  const app = new Hono<HonoEnv>();
 
-export function miscRoutes(app: FastifyInstance, ctx: Ctx) {
-  const uid = uidOf;
-  const idOf = idParam;
+  app.get('/health', (c) => c.json({ ok: true, demo: c.var.ctx.config.demoMode }));
+  app.get('/me', (c) => c.json(c.var.user));
 
-  app.get('/health', async () => ({ ok: true, demo: ctx.config.demoMode }));
-  app.get('/me', async (req) => req.user);
-
-  app.post('/demo/login', async (req, reply) => {
+  app.post('/demo/login', async (c) => {
+    const { ctx } = c.var;
     if (!ctx.config.demoMode) throw notFound('Demo mode is disabled');
-    const user = upsertUser(ctx.db, { email: 'demo@example.com', name: 'Demo User', demo: true });
-    ctx.db.prepare('UPDATE users SET demo = 1 WHERE id = ?').run(user.id);
-    defaultListId(ctx.db, user.id);
+    const user = await upsertUser(ctx.db, { email: 'demo@example.com', name: 'Demo User', demo: true });
+    await exec(ctx.db, 'UPDATE users SET demo = 1 WHERE id = ?', user.id);
+    await defaultListId(ctx.db, user.id);
     await seedDemoData(ctx, user.id);
-    startSession(ctx.db, ctx.config, reply, user.id, req);
-    return { ...user, demo: true };
+    await startSession(c, user.id);
+    return c.json({ ...user, demo: true });
   });
 
   /** Demo mode only: wipe the signed-in demo user's data (including any Google link) and reseed. Used by E2E tests and the "reset demo" affordance. */
-  app.post('/demo/reset', async (req) => {
+  app.post('/demo/reset', async (c) => {
+    const { ctx } = c.var;
     if (!ctx.config.demoMode) throw notFound('Demo mode is disabled');
-    const id = uid(req);
-    if (!req.user!.demo) throw notFound('Only the demo user can be reset');
-    const tx = ctx.db.transaction(() => {
-      for (const t of ['outbox', 'google_accounts']) {
-        try { ctx.db.prepare(`DELETE FROM ${t} WHERE user_id = ?`).run(id); } catch { /* table absent when Google is not loaded */ }
-      }
-      ctx.db.prepare('DELETE FROM reminder_tags WHERE reminder_id IN (SELECT id FROM reminders WHERE user_id = ?)').run(id);
-      ctx.db.prepare('DELETE FROM reminders WHERE user_id = ?').run(id);
-      ctx.db.prepare('DELETE FROM tags WHERE user_id = ?').run(id);
-      ctx.db.prepare('DELETE FROM lists WHERE user_id = ?').run(id);
-      ctx.db.prepare('DELETE FROM idempotency_keys WHERE user_id = ?').run(id);
-    });
-    tx();
-    defaultListId(ctx.db, id);
+    const id = uidOf(c);
+    if (!c.var.user!.demo) throw notFound('Only the demo user can be reset');
+    await batch(ctx.db, [
+      q(ctx.db, 'DELETE FROM outbox WHERE user_id = ?', id),
+      q(ctx.db, 'DELETE FROM google_accounts WHERE user_id = ?', id),
+      q(ctx.db, 'DELETE FROM reminder_tags WHERE reminder_id IN (SELECT id FROM reminders WHERE user_id = ?)', id),
+      q(ctx.db, 'DELETE FROM reminders WHERE user_id = ?', id),
+      q(ctx.db, 'DELETE FROM tags WHERE user_id = ?', id),
+      q(ctx.db, 'DELETE FROM lists WHERE user_id = ?', id),
+      q(ctx.db, 'DELETE FROM idempotency_keys WHERE user_id = ?', id),
+    ]);
+    await defaultListId(ctx.db, id);
     await seedDemoData(ctx, id);
-    return req.user;
+    return c.json(c.var.user);
   });
 
-  app.post('/auth/logout', async (req, reply) => {
-    endSession(ctx.db, req, reply);
-    return reply.code(204).send();
+  app.post('/auth/logout', async (c) => {
+    await endSession(c);
+    return c.body(null, 204);
   });
 
-  app.get('/lists', async (req) => listLists(ctx, uid(req)));
-  app.post('/lists', async (req, reply) => reply.code(201).send(createList(ctx, uid(req), ListCreateSchema.parse(req.body))));
-  app.patch('/lists/:id', async (req) => updateList(ctx, uid(req), idOf(req), ListPatchSchema.parse(req.body)));
-  app.delete('/lists/:id', async (req, reply) => { deleteList(ctx, uid(req), idOf(req)); return reply.code(204).send(); });
+  app.get('/lists', async (c) => c.json(await listLists(c.var.ctx, uidOf(c))));
+  app.post('/lists', async (c) => c.json(await createList(c.var.ctx, uidOf(c), ListCreateSchema.parse(c.var.body)), 201));
+  app.patch('/lists/:id', async (c) => c.json(await updateList(c.var.ctx, uidOf(c), idParam(c), ListPatchSchema.parse(c.var.body))));
+  app.delete('/lists/:id', async (c) => { await deleteList(c.var.ctx, uidOf(c), idParam(c)); return c.body(null, 204); });
 
-  app.get('/tags', async (req) => listTags(ctx, uid(req)));
-  app.post('/tags', async (req, reply) => reply.code(201).send(createTag(ctx, uid(req), TagCreateSchema.parse(req.body))));
-  app.delete('/tags/:id', async (req, reply) => { deleteTag(ctx, uid(req), idOf(req)); return reply.code(204).send(); });
-}
+  app.get('/tags', async (c) => c.json(await listTags(c.var.ctx, uidOf(c))));
+  app.post('/tags', async (c) => c.json(await createTag(c.var.ctx, uidOf(c), TagCreateSchema.parse(c.var.body)), 201));
+  app.delete('/tags/:id', async (c) => { await deleteTag(c.var.ctx, uidOf(c), idParam(c)); return c.body(null, 204); });
 
-/** Stand-in /sync/* routes used only when the Google plugin is absent. */
-export function fallbackSyncRoutes(app: FastifyInstance) {
-  const state = (): SyncState => ({ status: 'disconnected', connected: false, googleEmail: null, calendarId: 'primary', lastSyncAt: null, lastError: null, pendingOps: 0, conflictsResolved: 0, failedOps: 0 });
-  app.get('/sync/state', async () => state());
-  app.post('/sync/run', async () => state());
-  app.post('/sync/disconnect', async () => state());
-  app.patch('/sync/settings', async () => state());
-  app.get('/auth/google/start', async () => { throw new AppError(404, 'not_found', 'Google sync is not installed'); });
+  return app;
 }

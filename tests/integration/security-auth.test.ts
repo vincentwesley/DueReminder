@@ -6,6 +6,7 @@ import { encryptToken } from '../../server/src/google/crypto';
 import { verifyIdToken } from '../../server/src/google/idtoken';
 import { getAccessToken } from '../../server/src/google/tokens';
 import { cookieOf, makeHarness } from './google-helpers';
+import { exec, one } from '../../server/src/db/index';
 
 const STRONG = 'a'.repeat(8) + 'Zk3'.repeat(8);
 
@@ -18,18 +19,18 @@ describe('SESSION_SECRET enforcement (H1)', () => {
     expect(sessionSecretProblem(STRONG)).toBeNull();
   });
   it('refuses to start in production without a strong secret', () => {
-    expect(() => loadConfig({}, { NODE_ENV: 'production' })).toThrow(/SESSION_SECRET/);
-    expect(() => loadConfig({}, { NODE_ENV: 'production', SESSION_SECRET: 'change-me-to-32+-random-chars' })).toThrow(/SESSION_SECRET/);
-    expect(() => loadConfig({}, { NODE_ENV: 'production', SESSION_SECRET: STRONG })).not.toThrow();
+    expect(() => loadConfig({ NODE_ENV: 'production' })).toThrow(/SESSION_SECRET/);
+    expect(() => loadConfig({ NODE_ENV: 'production', SESSION_SECRET: 'change-me-to-32+-random-chars' })).toThrow(/SESSION_SECRET/);
+    expect(() => loadConfig({ NODE_ENV: 'production', SESSION_SECRET: STRONG, GOOGLE_AUTH_BASE: 'https://accounts.google.com' })).not.toThrow();
   });
   it('refuses to start with demo mode off and a weak secret', () => {
-    expect(() => loadConfig({}, { DEMO_MODE: '0', SESSION_SECRET: 'short' })).toThrow(/SESSION_SECRET/);
+    expect(() => loadConfig({ DEMO_MODE: '0', SESSION_SECRET: 'short' })).toThrow(/SESSION_SECRET/);
   });
   it('refuses demo mode in production', () => {
-    expect(() => loadConfig({}, { NODE_ENV: 'production', DEMO_MODE: '1', SESSION_SECRET: STRONG })).toThrow(/DEMO_MODE/);
+    expect(() => loadConfig({ NODE_ENV: 'production', DEMO_MODE: '1', SESSION_SECRET: STRONG })).toThrow(/DEMO_MODE/);
   });
   it('generates a random secret in dev (never the old constant)', () => {
-    const c = loadConfig({ dbPath: ':memory:' }, { DEMO_MODE: '1' });
+    const c = loadConfig({ DEMO_MODE: '1' });
     expect(c.sessionSecret).toHaveLength(64);
     expect(sessionSecretProblem(c.sessionSecret)).toBeNull();
   });
@@ -98,30 +99,30 @@ describe('account linking and session rotation', () => {
     const { h, res } = await loginWithClaims((c) => { c.email_verified = false; });
     expect(res.statusCode).toBe(302);
     expect(String(res.headers.location)).toContain('auth_error=email_unverified');
-    expect((h.db.prepare('SELECT COUNT(*) n FROM users').get() as { n: number }).n).toBe(0);
+    expect(((await one(h.db, 'SELECT COUNT(*) n FROM users')) as { n: number }).n).toBe(0);
     await h.close();
   });
   it('does not take over an account bound to a different Google subject', async () => {
     const h = await makeHarness();
-    h.db.prepare("INSERT INTO users (id,email,google_sub,name,created_at) VALUES ('u1','other@example.com','other-sub','X','2020-01-01')").run();
+    (await exec(h.db, "INSERT INTO users (id,email,google_sub,name,created_at) VALUES ('u1','other@example.com','other-sub','X','2020-01-01')"));
     // mock logs in as demo@example.com; make that address collide with an account owned by another subject
-    h.db.prepare("UPDATE users SET email = 'demo@example.com' WHERE id = 'u1'").run();
+    (await exec(h.db, "UPDATE users SET email = 'demo@example.com' WHERE id = 'u1'"));
     const r = await callback(h);
     const sid = cookieOf(r.headers['set-cookie'], 'rs_session');
-    const owner = h.db.prepare('SELECT user_id FROM sessions WHERE id = ?').get(sid) as { user_id: string } | undefined;
+    const owner = (await one(h.db, 'SELECT user_id FROM sessions WHERE id = ?', sid)) as { user_id: string } | undefined;
     expect(r.statusCode).toBe(302);
     expect(owner?.user_id).not.toBe('u1');
     await h.close();
   });
   it('replaces a pre-login session id on login (no fixation)', async () => {
     const h = await makeHarness();
-    h.db.prepare("INSERT INTO users (id,email,name,created_at) VALUES ('pre','pre@example.com','P','2020-01-01')").run();
-    h.db.prepare("INSERT INTO sessions (id,user_id,expires_at) VALUES ('planted','pre',?)").run(new Date(Date.now() + 1e9).toISOString());
+    (await exec(h.db, "INSERT INTO users (id,email,name,created_at) VALUES ('pre','pre@example.com','P','2020-01-01')"));
+    await exec(h.db, "INSERT INTO sessions (id,user_id,expires_at) VALUES ('planted','pre',?)", new Date(Date.now() + 1e9).toISOString());
     const r = await callback(h, 'rs_session=planted');
     const sid = cookieOf(r.headers['set-cookie'], 'rs_session');
     expect(sid).toBeTruthy();
     expect(sid).not.toBe('planted');
-    expect(h.db.prepare("SELECT 1 FROM sessions WHERE id = 'planted'").get()).toBeUndefined();
+    expect((await one(h.db, "SELECT 1 FROM sessions WHERE id = 'planted'"))).toBeUndefined();
     await h.close();
   });
 });
@@ -129,12 +130,12 @@ describe('account linking and session rotation', () => {
 describe('secret rotation (L8)', () => {
   it('marks the account reauth_required instead of failing forever', async () => {
     const h = await makeHarness();
-    h.db.prepare("INSERT INTO users (id,email,name,created_at) VALUES ('u','u@example.com','U','2020-01-01')").run();
+    (await exec(h.db, "INSERT INTO users (id,email,name,created_at) VALUES ('u','u@example.com','U','2020-01-01')"));
     const other = 'a-different-secret-a-different-secret';
-    h.db.prepare("INSERT INTO google_accounts (user_id,google_sub,email,access_token_enc,refresh_token_enc,expires_at) VALUES ('u','s','u@example.com',?,?,?)")
-      .run(encryptToken('at', other), encryptToken('rt', other), Date.now() + 3_600_000);
+    await exec(h.db, "INSERT INTO google_accounts (user_id,google_sub,email,access_token_enc,refresh_token_enc,expires_at) VALUES ('u','s','u@example.com',?,?,?)",
+      await encryptToken('at', other), await encryptToken('rt', other), Date.now() + 3_600_000);
     await expect(getAccessToken(h.google.ctx, 'u')).rejects.toThrow();
-    expect((h.db.prepare("SELECT status FROM google_accounts WHERE user_id='u'").get() as { status: string }).status).toBe('reauth_required');
+    expect(((await one(h.db, "SELECT status FROM google_accounts WHERE user_id='u'")) as { status: string }).status).toBe('reauth_required');
     await h.close();
   });
 });

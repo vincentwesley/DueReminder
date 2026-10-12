@@ -1,39 +1,46 @@
-import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import type { Db } from './db/index.js';
+import { randomHex } from './util.js';
+import { resolveGoogleConfig, type GoogleConfig } from './google/config.js';
+
+/** Worker bindings and vars. Everything except DB is optional text (see .dev.vars.example). */
+export interface Env {
+  DB: Db;
+  /** Static assets binding (web/dist); absent in unit tests. */
+  ASSETS?: { fetch(req: Request): Promise<Response> };
+  SESSION_SECRET?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_AUTH_BASE?: string;
+  GOOGLE_API_BASE?: string;
+  GOOGLE_TOKEN_URL?: string;
+  GOOGLE_REVOKE_URL?: string;
+  OAUTH_REDIRECT_URI?: string;
+  POST_LOGIN_REDIRECT?: string;
+  DEMO_MODE?: string;
+  DEMO_PRELINK?: string;
+  NODE_ENV?: string;
+  DEFAULT_TIMEZONE?: string;
+  AUTH_RATE_LIMIT?: string;
+  BODY_LIMIT_BYTES?: string;
+  /** 1 = plain `rs_session` cookie without Secure (http://localhost dev); default is `__Host-rs_session`. */
+  INSECURE_COOKIES?: string;
+  /** 0 = do not kick a sync after local writes (cron still syncs). */
+  AUTO_SYNC?: string;
+}
 
 export interface AppConfig {
-  port: number;
-  host: string;
-  webPort: number;
   demoMode: boolean;
-  dbPath: string;
   sessionSecret: string;
   nodeEnv: string;
   defaultTimezone: string;
-  webDist: string;
-  googleClientId: string;
-  googleClientSecret: string;
-  googleAuthBase: string;
-  googleApiBase: string;
-  oauthRedirectUri: string;
-  logger: boolean;
   /** Max requests per minute per client IP on login/callback/demo routes. */
   authRateLimit: number;
-  /** Trust X-Forwarded-For (set when running behind a reverse proxy). */
-  trustProxy: boolean;
-  /** Socket idle timeout in ms (must exceed the 25s SSE ping). */
-  connectionTimeoutMs: number;
-  /** How long an idle keep-alive connection is held open, in ms. */
-  keepAliveTimeoutMs: number;
-  /** Max time to receive a complete request, in ms. */
-  requestTimeoutMs: number;
-  /** Max length of a URL path parameter. */
-  maxParamLength: number;
   /** Max request body size in bytes. */
   bodyLimitBytes: number;
-  /** Max concurrent notification streams (SSE) per user; further attempts get 429. */
-  maxStreamsPerUser: number;
+  insecureCookies: boolean;
+  autoSync: boolean;
+  demoPrelink: boolean;
+  google: GoogleConfig;
 }
 
 const WEAK_SECRET = /change[-_ ]?me|dev-insecure|example[-_ ]value|your[-_ ]secret|replace[-_ ]me/i;
@@ -46,73 +53,40 @@ export function sessionSecretProblem(secret: string | undefined | null): string 
   return null;
 }
 
-let ephemeralSecret: string | undefined;
-
-/**
- * Development-only secret: random, persisted next to the database in a gitignored file so encrypted
- * tokens survive restarts. In-memory databases get a per-process random secret.
- */
-function localDevSecret(dbPath: string): string {
-  if (dbPath === ':memory:') return (ephemeralSecret ??= randomBytes(32).toString('hex'));
-  const file = join(dirname(dbPath), '.session-secret');
-  try {
-    if (existsSync(file)) {
-      const existing = readFileSync(file, 'utf8').trim();
-      if (!sessionSecretProblem(existing)) return existing;
-    }
-    mkdirSync(dirname(file), { recursive: true });
-    const fresh = randomBytes(32).toString('hex');
-    writeFileSync(file, `${fresh}\n`, { mode: 0o600 });
-    return fresh;
-  } catch {
-    return (ephemeralSecret ??= randomBytes(32).toString('hex'));
-  }
-}
-
 /** Production, or any deployment with demo mode off (real accounts), must not run on a weak secret. */
 export const isStrict = (c: { nodeEnv: string; demoMode: boolean }) => c.nodeEnv === 'production' || !c.demoMode;
 
-export function loadConfig(overrides: Partial<AppConfig> = {}, env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const port = Number(env.API_PORT ?? 4000);
-  const cfg = buildConfig(port, overrides, env);
-  if (cfg.nodeEnv === 'production' && cfg.demoMode) {
+const on = (v: string | undefined) => v === '1' || v === 'true';
+// ponytail: per-isolate random secret for demo/dev only (never strict deployments); tokens saved under it need a reconnect after an isolate restart. Set SESSION_SECRET in .dev.vars to avoid.
+let ephemeralSecret: string | undefined;
+
+type Vars = Partial<Omit<Env, 'DB' | 'ASSETS'>>;
+
+export function loadConfig(env: Vars = {}, overrides: { fetch?: typeof fetch } = {}): AppConfig {
+  const demoMode = on(env.DEMO_MODE);
+  const nodeEnv = env.NODE_ENV ?? 'development';
+  if (nodeEnv === 'production' && demoMode) {
     throw new Error('DEMO_MODE must be off when NODE_ENV=production: demo login creates unauthenticated sessions.');
   }
-  const problem = sessionSecretProblem(cfg.sessionSecret);
+  let sessionSecret = env.SESSION_SECRET ?? '';
+  const problem = sessionSecretProblem(sessionSecret);
   if (problem) {
-    if (isStrict(cfg)) {
-      throw new Error(`SESSION_SECRET ${problem}. Set SESSION_SECRET to 32+ random characters, e.g. node -e "console.log(require('crypto').randomBytes(32).toString('hex'))". It derives the Google token encryption key.`);
+    if (isStrict({ nodeEnv, demoMode })) {
+      throw new Error(`SESSION_SECRET ${problem}. Set SESSION_SECRET to 32+ random characters (wrangler secret put SESSION_SECRET). It derives the Google token encryption key.`);
     }
-    cfg.sessionSecret = localDevSecret(cfg.dbPath);
+    sessionSecret = ephemeralSecret ??= randomHex(32);
   }
-  return cfg;
-}
-
-function buildConfig(port: number, overrides: Partial<AppConfig>, env: NodeJS.ProcessEnv): AppConfig {
+  const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
   return {
-    port,
-    host: env.API_HOST ?? '::',
-    webPort: Number(env.WEB_PORT ?? 5173),
-    demoMode: env.DEMO_MODE === '1' || env.DEMO_MODE === 'true',
-    dbPath: env.DB_PATH ?? './data/reminders.db',
-    sessionSecret: env.SESSION_SECRET ?? '',
-    nodeEnv: env.NODE_ENV ?? 'development',
-    defaultTimezone: env.DEFAULT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
-    webDist: env.WEB_DIST ?? 'web/dist',
-    googleClientId: env.GOOGLE_CLIENT_ID ?? 'mock-client-id',
-    googleClientSecret: env.GOOGLE_CLIENT_SECRET ?? 'mock-client-secret',
-    googleAuthBase: env.GOOGLE_AUTH_BASE ?? 'http://localhost:4010',
-    googleApiBase: env.GOOGLE_API_BASE ?? 'http://localhost:4010',
-    oauthRedirectUri: env.OAUTH_REDIRECT_URI ?? `http://localhost:${port}/api/auth/callback`,
-    authRateLimit: Number(env.AUTH_RATE_LIMIT ?? 30),
-    trustProxy: env.TRUST_PROXY === '1' || env.TRUST_PROXY === 'true',
-    connectionTimeoutMs: Number(env.CONNECTION_TIMEOUT_MS ?? 120_000),
-    keepAliveTimeoutMs: Number(env.KEEP_ALIVE_TIMEOUT_MS ?? 5_000),
-    requestTimeoutMs: Number(env.REQUEST_TIMEOUT_MS ?? 30_000),
-    maxParamLength: Number(env.MAX_PARAM_LENGTH ?? 128),
-    bodyLimitBytes: Number(env.BODY_LIMIT_BYTES ?? 262_144),
-    maxStreamsPerUser: Number(env.MAX_STREAMS_PER_USER ?? 5),
-    logger: env.LOG !== '0' && env.NODE_ENV !== 'test' && !env.VITEST,
-    ...overrides,
+    demoMode,
+    sessionSecret,
+    nodeEnv,
+    defaultTimezone: env.DEFAULT_TIMEZONE ?? 'UTC',
+    authRateLimit: num(env.AUTH_RATE_LIMIT, 30),
+    bodyLimitBytes: num(env.BODY_LIMIT_BYTES, 262_144),
+    insecureCookies: on(env.INSECURE_COOKIES),
+    autoSync: env.AUTO_SYNC !== '0',
+    demoPrelink: env.DEMO_PRELINK === '1',
+    google: resolveGoogleConfig({ demoMode, sessionSecret, nodeEnv, fetch: overrides.fetch }, env),
   };
 }
