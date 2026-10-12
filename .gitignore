@@ -18,3 +18,4 @@ review-shots/
 .session-secret
 graphify-out/
 .claude/settings.local.json
+CLAUDE.md

@@ -19,7 +19,7 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     rollupOptions: {
-      output: { manualChunks: { react: ['react', 'react-dom'] } },
+      output: { manualChunks: (id) => (/node_modules[\/](react|react-dom)[\/]/.test(id) ? 'react' : undefined) },
     },
   },
   plugins: [

@@ -119,7 +119,7 @@ Interface agreements:
 
 ## 12. Dev and scripts
 `npm run dev` (implemented in `scripts/dev.mjs`) starts mock-google (4010), API (4000, `tsx watch`), and Vite (5173) via concurrently, loading `.env`. `npm test` = Vitest; `npm run test:e2e` = Playwright (starts stack with DEMO_MODE=1, in-memory DB, mock Google).
-Environment note: global `~/.npmrc` has a dead proxy; project `.npmrc` (gitignored) overrides it. Recreate with `proxy=null` / `https-proxy=null` if missing. Node 20.17 constrains versions (see DECISIONS.md).
+Environment note: global `~/.npmrc` has a dead proxy; project `.npmrc` (gitignored) overrides it. Recreate with `proxy=null` / `https-proxy=null` if missing.
 
 ## 13. Definition of done
 Typecheck clean; unit + integration tests pass; Playwright covers: demo login, quick-add, complete, recurring advance, connect mock Google, edit-in-mock appears locally, offline queue replay, reauth flow.
