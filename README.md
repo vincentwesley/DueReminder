@@ -53,13 +53,13 @@ In demo mode (default), click "Demo" to log in with sample data. No credentials 
 1. Follow [SETUP_GOOGLE.md](./SETUP_GOOGLE.md) to create OAuth credentials
 2. Paste client ID/secret into `.dev.vars` and set `GOOGLE_AUTH_BASE=https://accounts.google.com`, `GOOGLE_API_BASE=https://www.googleapis.com`
 3. Set `DEMO_MODE=0`
-4. Restart `npm run dev` and click "Connect Google"
+4. Restart `npm run dev`, sign in with Google, then open the sync menu and click "Connect Google Calendar" (a second, optional consent step)
 
 ## Deploy to Cloudflare
 
 1. `npx wrangler d1 create due-reminder`, then paste the printed `database_id` into `wrangler.jsonc` (the committed value is a placeholder; keep your real id out of git, or use a private fork).
 2. `npm run db:migrate:remote` applies `migrations/*.sql`.
-3. Set secrets: `npx wrangler secret put SESSION_SECRET` (32+ random characters; it derives the Google token encryption key), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+3. Set secrets: `npx wrangler secret put SESSION_SECRET` (32+ random characters; it derives the Google token encryption key), `npx wrangler secret put GOOGLE_CLIENT_ID`, `npx wrangler secret put GOOGLE_CLIENT_SECRET`.
 4. Set `OAUTH_REDIRECT_URI` (`wrangler.jsonc` vars, or leave it empty to use `<origin>/api/auth/callback`) and add that URL to the Google OAuth client. `NODE_ENV=production`, `DEMO_MODE=0` and the real Google endpoints are already the `wrangler.jsonc` defaults.
 5. `npm run deploy` builds the UI and runs `wrangler deploy`. A cron trigger (every minute) syncs Google Calendar for users with a live session.
 
@@ -185,9 +185,13 @@ The Worker refuses this for safety. Either:
 
 ## Data, network and privacy
 
-- **Data storage**: reminders live in Cloudflare D1 (locally a SQLite file under `.wrangler/`, gitignored) and are cached in the browser's IndexedDB. Google tokens are stored AES-256-GCM encrypted.
-- **Network calls**: in demo mode (default) everything stays on `localhost`; no secrets are needed. With `DEMO_MODE=0` the server talks only to Google (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`) for OAuth and Calendar sync. No analytics or other third-party hosts.
-- **Secrets**: put credentials in `.dev.vars` (local) or `wrangler secret put` (deployed) only; `.dev.vars` is gitignored and `.dev.vars.example` lists names only. Google OAuth setup: [SETUP_GOOGLE.md](./SETUP_GOOGLE.md).
+Provided "as is", without warranty of any kind. The deployed app serves its own policies at `/privacy` and `/terms` (`web/public/`).
+
+- **What is stored** (Cloudflare D1; locally a SQLite file under `.wrangler/`, gitignored): the user's email, name, picture URL and Google account ID; reminders, subtasks, lists, tags, templates; session ids; and, only if the user turns on calendar sync, Google tokens encrypted with AES-256-GCM (key derived from `SESSION_SECRET`). Reminders are also cached in the browser's IndexedDB. Sign-in alone stores no Google tokens.
+- **Secrets needed**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` (32+ random characters). Put them in `.dev.vars` (local, gitignored; `.dev.vars.example` lists names only) or `wrangler secret put` (deployed). Never commit them. Setup: [SETUP_GOOGLE.md](./SETUP_GOOGLE.md).
+- **Network calls**: in demo mode (default) everything stays on `localhost`. With `DEMO_MODE=0` the server talks only to Google (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`) for sign-in and, if enabled, Calendar sync (only events the app created are changed). The browser loads nothing from third-party hosts (fonts and code are self-hosted); no analytics or trackers. The CSP is strict: self only, no inline scripts except hashed ones.
+- **Export and delete**: in the app, account menu > Settings > "Export my data" (JSON, no tokens) or "Delete account". Delete removes every row for the user, deletes the Google events the app created (best effort, up to 40) and revokes the Google grant. API: `GET /api/account/export`, and `DELETE /api/account` with body `{"confirm":"delete"}` plus the `X-Requested-With: fetch` header. Users can also revoke access at <https://myaccount.google.com/permissions>.
+- **Contact for data requests**: open an issue at <https://github.com/vincentwesley/DueReminder/issues> (no personal details in the issue).
 
 ## License
 

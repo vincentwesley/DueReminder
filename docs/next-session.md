@@ -15,7 +15,8 @@ v1 verified in demo mode; all checks green on Node 24. Only do what the owner as
 
 ## Current state
 - Backend ported to Cloudflare Workers + D1 (Hono); verified locally in demo mode (React PWA, mock Google for e2e). Not deployed: `wrangler.jsonc` has a placeholder D1 id (README, Deploy to Cloudflare). Undo for complete/delete/snooze shipped.
-- Roadmap: house reskin (in progress on `web/`); two-step Google OAuth (sign-in = `openid email profile`, `calendar.events` requested only when the user enables sync); delete account + export; `/privacy` and `/terms`; strict CSP.
+- Done: house reskin; two-step Google OAuth (sign-in = `openid email profile`; `/api/auth/google/calendar` adds `calendar.events`; mock models both); `DELETE /api/account` + `GET /api/account/export` + Settings UI; static `/privacy` and `/terms` (`web/public/`); strict CSP/headers (`web/public/_headers` + app.ts; the inline-script hash normalises CRLF); axe e2e (`e2e/a11y.spec.ts`).
+- Before deploy: privacy/terms contact is the GitHub issues URL; Google verification is needed for the sensitive calendar scope outside Testing mode.
 - Live Google has never been tested.
 
 ## Known gaps / ideas
