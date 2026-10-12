@@ -1,0 +1,90 @@
+/* Credits card (from MetaLens VGC). Needs ../tokens.css. All rules scoped under .creator. */
+.creator {
+  --ff-core: var(--firefly-core);
+  --ff-glow: 0 0 4px 1px var(--firefly), 0 0 12px 4px color-mix(in srgb, var(--firefly) 70%, transparent), 0 0 26px 8px color-mix(in srgb, var(--firefly) 35%, transparent);
+  --cr-green: #3fae6a;
+  font-family: var(--font-body);
+  color: var(--fg);
+}
+.creator .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+.creator .card { background: color-mix(in srgb, var(--bg-elev) 88%, transparent); border: 2px solid var(--border-strong); border-radius: 0; }
+.creator .card__head { display: flex; align-items: baseline; gap: 12px; padding: 12px 16px; border-bottom: 2px solid var(--border-strong); }
+.creator .card__head h2 { margin: 0; font: 700 1rem var(--font-head); text-transform: uppercase; }
+.creator .card__head h2::before { content: ""; display: inline-block; vertical-align: middle; margin: -3px 8px 0 0; width: 6px; height: 6px; background: var(--accent); box-shadow: 2px 2px 0 var(--border-strong); }
+.creator .card__body { padding: 16px; }
+
+.creator__body {
+  display: grid; grid-template-columns: minmax(160px, 260px) 1fr; gap: 16px; align-items: center;
+  position: relative; overflow: hidden;
+  background:
+    radial-gradient(ellipse 60% 90% at 18% 55%, color-mix(in srgb, var(--cr-green) 28%, transparent), transparent 70%),
+    radial-gradient(circle, color-mix(in srgb, var(--cr-green) 22%, transparent) 1.2px, transparent 1.6px) 0 0 / 14px 14px;
+}
+.creator__art img {
+  display: block; width: 100%; height: auto; max-height: 340px; object-fit: contain; object-position: bottom;
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent);
+  filter: drop-shadow(0 0 18px color-mix(in srgb, var(--cr-green) 45%, transparent));
+}
+.creator__eyebrow { margin: 0; font-family: var(--font-label); font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-muted); }
+.creator__name { margin: 2px 0 8px; font-family: var(--font-head); font-weight: 700; font-size: clamp(1.25rem, 3vw, 1.75rem); color: var(--accent); }
+.creator__blurb { margin: 0 0 12px; color: var(--fg-muted); max-width: 52ch; }
+.creator__links { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.creator__links a {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; min-height: 36px;
+  border: 1px solid var(--border); border-radius: 0; background: var(--bg-elev);
+  color: var(--fg); text-decoration: none; font-family: var(--font-label); font-size: .85rem;
+}
+.creator__links a:hover { border-color: var(--accent); color: var(--accent); }
+.creator__links svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.creator__links svg .fill { fill: currentColor; stroke: none; }
+@media (max-width: 600px) {
+  .creator__body { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+  .creator__art { width: min(220px, 60vw); }
+  .creator__links { justify-content: center; }
+}
+
+.creator__fx { position: absolute; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.creator__art, .creator__text { position: relative; z-index: 1; }
+.creator__fx i {
+  position: absolute; left: var(--x); top: var(--y); width: var(--s); height: var(--s);
+  background: var(--ff-core); image-rendering: pixelated;
+  box-shadow: var(--ff-glow);
+  will-change: transform, opacity;
+  animation: ff-drift var(--d) ease-in-out var(--delay) infinite alternate, ff-blink var(--b) steps(6, end) var(--delay) infinite;
+}
+@keyframes ff-drift {
+  0% { transform: translate(0, 0); }
+  50% { transform: translate(calc(var(--dx) * .6), calc(var(--dy) * -.4)); }
+  100% { transform: translate(var(--dx), var(--dy)); }
+}
+@keyframes ff-blink { 0%, 100% { opacity: .15; } 35% { opacity: 1; } 60% { opacity: .75; } 80% { opacity: .3; } }
+.creator__fx .spark {
+  position: absolute; left: var(--x); top: var(--y); width: 15px; height: 15px; color: var(--firefly);
+  background:
+    linear-gradient(currentColor, currentColor) 50% 50% / 3px 100% no-repeat,
+    linear-gradient(currentColor, currentColor) 50% 50% / 100% 3px no-repeat;
+  filter: drop-shadow(0 0 4px currentColor) drop-shadow(0 0 10px color-mix(in srgb, var(--cr-green) 60%, transparent));
+  animation: ff-twinkle var(--t) steps(8, end) var(--delay, 0s) infinite;
+}
+.creator__fx .spark--sm { width: 9px; height: 9px; }
+@keyframes ff-twinkle { 0%, 100% { opacity: 0; transform: scale(.4); } 45% { opacity: 1; transform: scale(1); } 60% { opacity: .9; transform: scale(.85); } }
+.creator__name span {
+  position: relative;
+  text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 16px color-mix(in srgb, var(--cr-green) 40%, transparent);
+}
+.creator__name span::after {
+  content: "Vin" / ""; position: absolute; left: 0; top: 0; color: transparent; pointer-events: none;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--accent) 85%, transparent), 0 0 30px color-mix(in srgb, var(--cr-green) 70%, transparent);
+  will-change: opacity; animation: name-glow 3.6s ease-in-out infinite;
+}
+@keyframes name-glow { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+/* idle until on screen (.is-live, set by credits.js) */
+.creator__fx i, .creator__fx .spark, .creator__name span::after { animation-play-state: paused; }
+.creator.is-live .creator__fx i, .creator.is-live .creator__fx .spark, .creator.is-live .creator__name span::after { animation-play-state: running; }
+@media (prefers-reduced-motion: reduce) {
+  .creator__fx i, .creator__fx .spark, .creator__name span::after { animation: none !important; }
+  .creator__name span::after { opacity: .5; }
+  .creator__fx i { opacity: .6; }
+  .creator__fx .spark { opacity: .8; }
+}

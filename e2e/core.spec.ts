@@ -213,11 +213,13 @@ test.describe('views and search', () => {
 });
 
 test.describe('theme and mobile', () => {
-  test('theme toggle cycles light, dark, system and persists', async ({ signedIn: page }) => {
+  test('theme defaults to dark, toggles to light and persists', async ({ signedIn: page }) => {
     await openApp(page);
     const html = page.locator('html');
-    await expect(html).not.toHaveAttribute('data-theme', /.+/);
+    await expect(html).toHaveAttribute('data-theme', 'dark');
     await page.getByTestId('theme-toggle').click();
+    await expect(html).toHaveAttribute('data-theme', 'light');
+    await page.reload();
     await expect(html).toHaveAttribute('data-theme', 'light');
     await page.getByTestId('theme-toggle').click();
     await expect(html).toHaveAttribute('data-theme', 'dark');
@@ -225,8 +227,6 @@ test.describe('theme and mobile', () => {
     expect(bg).not.toBe('rgb(255, 255, 255)');
     await page.reload();
     await expect(html).toHaveAttribute('data-theme', 'dark');
-    await page.getByTestId('theme-toggle').click();
-    await expect(html).not.toHaveAttribute('data-theme', /.+/);
   });
 
   test.describe('mobile viewport', () => {

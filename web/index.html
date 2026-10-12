@@ -4,14 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="Reminders with natural-language quick add and Google Calendar sync." />
-    <meta name="theme-color" content="#4f46e5" />
+    <meta name="theme-color" content="#11150e" />
+    <link rel="stylesheet" href="/_house/tokens.css" />
+    <link rel="stylesheet" href="/_house/credits/credits.css" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>Reminders</title>
     <script>
       try {
         var t = localStorage.getItem('rs.theme');
-        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+        document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
       } catch (e) {}
     </script>
   </head>

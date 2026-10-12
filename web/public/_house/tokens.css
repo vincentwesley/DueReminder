@@ -1,0 +1,110 @@
+/* House design kit: personal-side palette (dark default, mint light), fonts, hs- helpers. */
+@font-face { font-family: "Space Grotesk"; src: url("fonts/space-grotesk-latin-wght-normal.woff2") format("woff2"); font-weight: 300 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/inter-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Silkscreen"; src: url("fonts/silkscreen-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2"); font-weight: 100 800; font-style: normal; font-display: swap; }
+
+:root {
+  --font-head: "Space Grotesk", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-label: "Silkscreen", ui-monospace, monospace; /* pixel accent: eyebrows, badges, chips, "Made by" only */
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+
+/* Dark is the default (also without JS). */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #11150e;
+  --bg-elev: #1a2015;
+  --fg: #e9f0df;
+  --fg-muted: #aebb9f;
+  --border: #2f3a26;
+  --border-strong: #6f8560;
+  --accent: #4fe0a0;
+  --accent-fg: #04140b;
+  --focus: #7db4ff;
+  --fx-1: #22eaa0;
+  --firefly: #9dff6a;
+  --firefly-core: #eaffb0;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #eef7f1;
+  --bg-elev: #fbfefc;
+  --fg: #10251a;
+  --fg-muted: #3b5747;
+  --border: #c2dbcb;
+  --border-strong: #4f7d63;
+  --accent: #14673a;
+  --accent-fg: #ffffff;
+  --focus: #1f5fbf;
+  --fx-1: #10b87c;
+  --firefly: #1f9d55;
+  --firefly-core: #6be39a;
+}
+:root {
+  --fx-2: #e9a07f; /* peach */
+  --fx-3: #a996e0; /* lavender */
+  --fx-ease: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --fx-step: steps(4, end);
+  --pix: 0 -2px var(--border-strong), 0 2px var(--border-strong), -2px 0 var(--border-strong), 2px 0 var(--border-strong);
+  --fx-card-shadow: 0 -2px var(--accent), 0 2px var(--accent), -2px 0 var(--accent), 2px 0 var(--accent), 4px 4px 0 0 var(--fx-2);
+  --fx-btn-shadow: 3px 3px 0 0 var(--fx-2);
+}
+
+/* ---- helpers ---- */
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 4px 4px 0 0 var(--focus); }
+
+.hs-card {
+  position: relative;
+  padding: 1rem 1.25rem;
+  background: var(--bg-elev);
+  color: var(--fg);
+  border: 0;
+  border-radius: 0;
+  box-shadow: var(--pix);
+}
+.hs-card::before { /* glow fades in; only opacity changes */
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  box-shadow: inset 0 0 0 2px var(--firefly), inset 0 0 1.4rem color-mix(in srgb, var(--firefly) 30%, transparent);
+}
+.hs-card:is(:hover, :focus-within) { box-shadow: var(--fx-card-shadow); }
+.hs-card:is(:hover, :focus-within)::before { opacity: 1; }
+
+.hs-btn {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.55rem 1rem; min-height: 44px;
+  font: 600 1rem var(--font-body);
+  color: var(--accent-fg); background: var(--accent);
+  border: 2px solid var(--accent); border-radius: 0;
+  box-shadow: var(--fx-btn-shadow);
+  cursor: pointer; text-decoration: none;
+}
+.hs-btn:is(:hover, :focus-visible) { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 0 var(--fx-2); }
+.hs-btn:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 0 var(--fx-2); }
+.hs-btn:focus-visible { box-shadow: 4px 4px 0 0 var(--focus); }
+
+.hs-chip {
+  display: inline-flex; align-items: center; padding: 0.2rem 0.6rem;
+  font: 400 0.8rem var(--font-label); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--fg); background: var(--bg-elev);
+  border: 0; border-radius: 0; box-shadow: var(--pix);
+}
+a.hs-chip, button.hs-chip { cursor: pointer; text-decoration: none; }
+a.hs-chip:hover, button.hs-chip:hover { color: var(--accent); }
+
+.hs-eyebrow {
+  margin: 0; font: 400 0.8rem var(--font-label);
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-muted);
+}
+.hs-eyebrow::before {
+  content: ""; display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.6em;
+  background: var(--accent); box-shadow: 0.25em 0.25em 0 var(--fx-2);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hs-card::before { transition: opacity 0.2s; }
+  .hs-btn { transition: transform 0.24s var(--fx-ease), box-shadow 0.24s var(--fx-ease); }
+  .hs-btn:active { transition-duration: 0.05s; }
+}

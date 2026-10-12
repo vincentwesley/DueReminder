@@ -1,36 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
 
-export type Theme = 'system' | 'light' | 'dark';
+// Dark is the default; light only via the toggle (house rule: never follow prefers-color-scheme).
+export type Theme = 'light' | 'dark';
 const KEY = 'rs.theme';
 
 function read(): Theme {
-  try {
-    const v = localStorage.getItem(KEY);
-    return v === 'light' || v === 'dark' ? v : 'system';
-  } catch { return 'system'; }
+  try { return localStorage.getItem(KEY) === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
 }
 
 function apply(t: Theme) {
-  const el = document.documentElement;
-  if (t === 'system') delete el.dataset.theme;
-  else el.dataset.theme = t;
-  const dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0f1117' : '#4f46e5');
+  document.documentElement.dataset.theme = t;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', t === 'dark' ? '#11150e' : '#eef7f1');
 }
 
 export function useTheme() {
   const [theme, setTheme] = useState<Theme>(read);
-  useEffect(() => {
-    apply(theme);
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const on = () => theme === 'system' && apply('system');
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, [theme]);
+  useEffect(() => apply(theme), [theme]);
   const cycle = useCallback(() => {
     setTheme((t) => {
-      const n: Theme = t === 'system' ? 'light' : t === 'light' ? 'dark' : 'system';
-      try { if (n === 'system') localStorage.removeItem(KEY); else localStorage.setItem(KEY, n); } catch { /* storage unavailable */ }
+      const n: Theme = t === 'dark' ? 'light' : 'dark';
+      try { localStorage.setItem(KEY, n); } catch { /* storage unavailable */ }
       return n;
     });
   }, []);

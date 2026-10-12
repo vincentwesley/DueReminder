@@ -7,6 +7,7 @@ import { Icon } from './components/Icon';
 import { Login } from './components/Login';
 import { QuickAdd } from './components/QuickAdd';
 import { ReminderItem } from './components/ReminderItem';
+import { Credits } from './components/Credits';
 import { BottomNav, Sidebar } from './components/Sidebar';
 
 const Editor = lazy(() => import('./components/Editor'));
@@ -209,7 +210,7 @@ function Shell() {
   }, []);
 
   const status = sync?.status ?? 'disconnected';
-  const themeIcon = theme === 'dark' ? 'moon' : theme === 'light' ? 'sun' : 'auto';
+  const themeIcon = theme === 'dark' ? 'moon' : 'sun';
 
   return (
     <div className="app">
@@ -258,7 +259,7 @@ function Shell() {
             {sync?.connected && status !== 'reauth_required' && (
               <button type="button" className={`icon-btn${syncBusy || status === 'syncing' ? ' spin' : ''}`} aria-label="Sync now" data-testid="sync-now-btn" disabled={syncBusy || !online} onClick={() => void syncNow()}><Icon name="sync" /></button>
             )}
-            <button type="button" className="icon-btn" onClick={cycleTheme} data-testid="theme-toggle" aria-label={`Theme: ${theme}. Click to change`} title={`Theme: ${theme}`}><Icon name={themeIcon} /></button>
+            <button type="button" className="icon-btn" onClick={cycleTheme} data-testid="theme-toggle" aria-label={`Theme: ${theme}. Click to switch to ${theme === 'dark' ? 'light' : 'dark'}`} title={`Theme: ${theme}`}><Icon name={themeIcon} /></button>
             <button type="button" className="icon-btn hide-mobile" onClick={() => setState({ helpOpen: true })} aria-label="Keyboard shortcuts" data-testid="help-btn"><Icon name="keyboard" /></button>
             <AccountChip />
           </header>
@@ -295,6 +296,10 @@ function Shell() {
 export function App() {
   const user = useStore((s) => s.user);
   useEffect(() => { void boot(); }, []);
-  if (user === undefined) return <div className="boot" role="status" aria-label="Loading"><span className="spinner" /></div>;
-  return user ? <Shell /> : <><Login /><Toasts /></>;
+  return (
+    <>
+      {user === undefined ? <div className="boot" role="status" aria-label="Loading"><span className="spinner" /></div> : user ? <Shell /> : <><Login /><Toasts /></>}
+      <Credits />
+    </>
+  );
 }
