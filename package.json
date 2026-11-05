@@ -26,7 +26,7 @@
   "dependencies": {
     "chrono-node": "^2.7.0",
     "hono": "^4.13.13",
-    "idb": "^7.1.1",
+    "idb": "^8.0.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "rrule": "^2.8.1",
