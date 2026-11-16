@@ -1,0 +1,7 @@
+/* TEAM */
+Developer: Vin
+Studio: Vin's Atelier
+Site: vwesley.dev
+
+/* SITE */
+Standards: HTML, CSS, TypeScript

@@ -193,6 +193,10 @@ Provided "as is", without warranty of any kind. The deployed app serves its own 
 - **Export and delete**: in the app, account menu > Settings > "Export my data" (JSON, no tokens) or "Delete account". Delete removes every row for the user, deletes the Google events the app created (best effort, up to the 40 most recent at once; any remainder can be removed from Google Calendar manually, the events carry the app's private marker) and revokes the Google grant. API: `GET /api/account/export`, and `DELETE /api/account` with body `{"confirm":"delete"}` plus the `X-Requested-With: fetch` header. Users can also revoke access at <https://myaccount.google.com/permissions>.
 - **Contact for data requests**: open an issue at <https://github.com/vincentwesley/DueReminder/issues> (no personal details in the issue).
 
+## Credits
+
+Designed and built by Vin, Vin's Atelier (https://vwesley.dev). Logo by @portus_workstation / @wason25_pz (Instagram); the logo is all rights reserved, not covered by the MIT licence.
+
 ## License
 
 MIT, see [LICENSE](./LICENSE). Copyright (c) 2026 Vincent Wesley. Provided "as is", without warranty of any kind; use at your own risk. See [SECURITY.md](./SECURITY.md) to report a vulnerability.

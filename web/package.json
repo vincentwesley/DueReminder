@@ -1,6 +1,7 @@
 {
   "name": "reminder-web",
   "private": true,
+  "author": "Vin, Vin's Atelier (https://vwesley.dev)",
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts",

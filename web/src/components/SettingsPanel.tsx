@@ -34,6 +34,13 @@ export default function SettingsPanel() {
         <p className="hint">Permanently remove your account and all of its data.</p>
         <div className="row wrap"><button type="button" className="btn btn-danger" onClick={() => setConfirming(true)} data-testid="delete-account">Delete account</button></div>
         <hr />
+        <h3 id="logo-size-h">Appearance: Logo</h3>
+        <div className="logo-pick" role="radiogroup" aria-labelledby="logo-size-h">
+          {(['short', 'middle', 'long'] as const).map((f) => (
+            <label key={f}><input type="radio" name="logo-form" value={f} data-logo-form defaultChecked={f === (document.documentElement.dataset.logo ?? 'middle')} /><span>{f[0]!.toUpperCase() + f.slice(1)}</span></label>
+          ))}
+        </div>
+        <hr />
         <p className="hint"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p>
       </div>
     </Dialog>

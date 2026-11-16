@@ -1,4 +1,6 @@
-import { useEffect, type CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
+import { BrandLogo } from './BrandLogo';
+import { initLogoResize } from '../brand/logo-resize';
 
 const st = (s: string) => Object.fromEntries(s.split(';').filter(Boolean).map((p) => p.split(':').map((x) => x.trim()))) as CSSProperties;
 
@@ -29,6 +31,8 @@ const SPARKS: [string, CSSProperties][] = [
 ];
 
 export function Credits() {
+  const sign = useRef<HTMLDivElement>(null);
+  useEffect(() => initLogoResize(sign.current!), []);
   // house credits.js binds an IntersectionObserver to .creator; run it once on mount.
   useEffect(() => { const url = '/_house/credits/credits.js'; void import(/* @vite-ignore */ url); }, []);
   return (
@@ -59,6 +63,14 @@ export function Credits() {
                 <span>@Vin_Koe</span><span className="sr-only"> on X (Twitter)</span></a></li>
             </ul>
           </div>
+        </div>
+        <div className="studio-signoff" ref={sign}>
+          <a href="https://vwesley.dev" className="studio-logo-link" data-logo-link title="Drag sideways to resize" target="_blank" rel="noopener">
+            <BrandLogo id="bl" />
+          </a>
+          <p><span>Copyright {new Date().getFullYear()} Vin's Atelier.</span> <span>Designed and built by Vin.</span></p>
+          <p>Logo by <a href="https://www.instagram.com/portus_workstation/" target="_blank" rel="noopener noreferrer">@portus_workstation</a>
+            {' / '}<a href="https://www.instagram.com/wason25_pz/" target="_blank" rel="noopener noreferrer">@wason25_pz</a></p>
         </div>
       </div>
     </section>

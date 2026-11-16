@@ -19,6 +19,8 @@ v1 verified in demo mode; all checks green on Node 24. Only do what the owner as
 - Before deploy: privacy/terms contact is the GitHub issues URL; Google verification is needed for the sensitive calendar scope outside Testing mode.
 - Live Google has never been tested.
 
+- Brand: draggable Vin's Atelier logo in the credits sign-off (`web/src/brand/`, `BrandLogo.tsx`); radios in Settings; pre-paint via external `web/public/logo-init.js`; spec `e2e/logo.spec.ts`.
+
 ## Known gaps / ideas
 1. Live Google OAuth and Calendar sync untested against the real API.
 2. @vitejs/plugin-react pinned to 5.x (6.x peer conflict with workbox's Babel 7).

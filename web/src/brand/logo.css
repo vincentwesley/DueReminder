@@ -1,0 +1,194 @@
+/* Vin's Atelier logo (credits sign-off). ONE variable drives it: --logo-x, the right chevron's start in viewBox units
+   (540 short, 734 middle, 1491.4 long). Unit: 1 unit = 2.5rem / 470; the chevrons are 432 units tall.
+   html[data-logo] holds the chosen form (set before paint by the pre-paint script). Ported from the portfolio's chrome.css. */
+.studio-signoff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  padding: 1rem 1.25rem 1.25rem;
+  border-top: 1px solid var(--border);
+}
+.studio-signoff p {
+  margin: 0;
+}
+.studio-signoff span {
+  display: inline-block;
+}
+.studio-logo-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  /* Drag the logo sideways to resize it (logo-resize.ts); vertical swipes still scroll the page. */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Gradient: the six commissioned stops. Hex = the mint fallback; browsers with relative colour keep their lightness,
+   chroma and hue steps and take the hue from the app's --accent. */
+.studio-signoff .brand-logo {
+  --lg-0: #4DE3A6; --lg-1: #4FC096; --lg-2: #529B85; --lg-3: #548079; --lg-4: #557072; --lg-5: #556A6F;
+}
+@supports (color: oklch(from red l c h)) {
+  .studio-signoff .brand-logo {
+    --lg-0: oklch(from var(--accent) 0.8212 calc(0.1542 * min(1, c / 0.12)) calc(h + 1.7));
+    --lg-1: oklch(from var(--accent) 0.7313 calc(0.1207 * min(1, c / 0.12)) calc(h + 5));
+    --lg-2: oklch(from var(--accent) 0.6355 calc(0.0813 * min(1, c / 0.12)) calc(h + 11.3));
+    --lg-3: oklch(from var(--accent) 0.5657 calc(0.0498 * min(1, c / 0.12)) calc(h + 22.9));
+    --lg-4: oklch(from var(--accent) 0.5246 calc(0.0317 * min(1, c / 0.12)) calc(h + 41.3));
+    --lg-5: oklch(from var(--accent) 0.509 calc(0.0263 * min(1, c / 0.12)) calc(h + 53.2));
+  }
+}
+.studio-signoff .brand-logo stop:nth-child(1) { stop-color: var(--lg-0); }
+.studio-signoff .brand-logo stop:nth-child(2) { stop-color: var(--lg-1); }
+.studio-signoff .brand-logo stop:nth-child(3) { stop-color: var(--lg-2); }
+.studio-signoff .brand-logo stop:nth-child(4) { stop-color: var(--lg-3); }
+.studio-signoff .brand-logo stop:nth-child(5) { stop-color: var(--lg-4); }
+.studio-signoff .brand-logo stop:nth-child(6) { stop-color: var(--lg-5); }
+
+@property --logo-x {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 734;
+}
+html[data-logo="short"] {
+  --logo-x: 540;
+}
+html[data-logo="long"] {
+  --logo-x: 1491.4;
+}
+/* No room for the long form on phones: it shows as the middle one. */
+@media (max-width: 29.99rem) {
+  html[data-logo="long"] {
+    --logo-x: 734;
+  }
+}
+.studio-signoff .brand-logo {
+  display: block;
+  flex: none;
+  overflow: visible;
+  height: calc(2.5rem * 432 / 470);
+  width: calc((var(--logo-x) + 216) * 2.5rem / 470);
+  --hint: 70px;
+}
+.studio-signoff .brand-logo--long {
+  --logo-x: 1491.4;
+}
+.studio-signoff .bl-right {
+  transform: translateX(calc(var(--logo-x) * 1px));
+}
+.studio-signoff :is(.bl-in, .bl-atelier) {
+  fill: #ffffff;
+}
+:root[data-theme="light"] .studio-signoff :is(.bl-in, .bl-atelier) {
+  fill: #333333;
+}
+/* "in" (464..734 wide) is uncovered as the chevron passes (gone at 540), then fades out by 900 as "Atelier" comes in. */
+.studio-signoff .bl-in {
+  clip-path: inset(0 max(0px, (734 - var(--logo-x)) * 1.39176px) 0 0) fill-box;
+  /* Gone by 790, before Atelier starts, so the two never show on top of each other mid-morph. */
+  opacity: clamp(0, (790 - var(--logo-x)) / 56, 1);
+}
+/* "Atelier" follows the chevron's left edge and is fully shown at 1491.4. */
+.studio-signoff .bl-atelier {
+  clip-path: inset(0 max(0px, (1491.4 - var(--logo-x)) * 1px) 0 0) fill-box;
+  opacity: clamp(0, (var(--logo-x) - 790) / 110, 1);
+}
+
+/* Hints that the logo can be stretched: a resize cursor and a small tug of the right chevron on hover, and on the first
+   three visits one slow two-step tug after load (data-hint, set by logo-resize.ts until a form is picked). The tug points
+   the way the logo can still grow. Transforms only (no layout shift). Motion only when motion is allowed. */
+html[data-logo="long"] .studio-signoff .brand-logo {
+  --hint: -70px;
+}
+@media (max-width: 29.99rem) {
+  html:not([data-logo="short"]) .studio-signoff .brand-logo {
+    --hint: -70px;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .studio-logo-link {
+    cursor: ew-resize;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* Form change (snap after a drag, or the radios): one transition of --logo-x; the width, clips and fades follow it. */
+  .studio-signoff .brand-logo {
+    transition: --logo-x 0.35s ease-out;
+  }
+  .studio-signoff .bl-right {
+    transition: translate 0.25s ease-out;
+  }
+  .studio-logo-link:is(:hover, :focus-visible) .bl-right {
+    translate: var(--hint) 0;
+  }
+  .studio-signoff .brand-logo[data-hint] .bl-right {
+    animation: logo-hint 1.6s ease-in-out 1.2s;
+  }
+  /* Dragging: the logo follows the pointer directly. */
+  .studio-signoff .brand-logo[data-drag] {
+    transition: none;
+  }
+  .studio-signoff .brand-logo[data-drag] .bl-right {
+    translate: none;
+    transition: none;
+  }
+}
+@keyframes logo-hint {
+  0%,
+  45%,
+  100% {
+    translate: 0 0;
+  }
+  20% {
+    translate: calc(var(--hint) * 1.6) 0;
+  }
+  70% {
+    translate: var(--hint) 0;
+  }
+}
+
+/* Logo size radios (segmented group; native radios keep the arrow-key behaviour). */
+.logo-label {
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.logo-pick {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+.logo-pick label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 3.25rem;
+  min-height: 2.75rem;
+  padding-inline: 0.75rem;
+  border-radius: 999px;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.logo-pick input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.logo-pick label:has(input:checked) {
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.logo-pick label:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
