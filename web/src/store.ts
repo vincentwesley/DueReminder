@@ -172,11 +172,12 @@ async function fetchAll(): Promise<Reminder[]> {
 }
 
 /** `quiet` = background refetch: no toast on failure, and dropped if a local edit landed while it was in flight. */
-export async function loadAll(quiet = false) {
+export async function loadAll(quiet = false): Promise<void> {
   const before = state.reminders;
   try {
     const [reminders, lists, tags] = await Promise.all([fetchAll(), api.lists(), api.tags()]);
-    if (quiet && state.reminders !== before) return;
+    // A local write landed while this fetch was in flight: the snapshot is stale. Background loads drop it; a foreground load refetches rather than overwrite the write.
+    if (state.reminders !== before) return quiet ? undefined : loadAll();
     setState({ reminders, lists: lists.filter((l) => !l.deletedAt).sort((a, b) => a.sortOrder - b.sortOrder), tags, loaded: true, online: true });
     void cacheSet('data', { reminders, lists, tags });
   } catch (e) {
