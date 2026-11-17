@@ -17,3 +17,6 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 .foot { margin-top: 24px; display: flex; gap: 20px; justify-content: center; }
 .foot a { color: var(--fg-muted); min-height: 44px; display: inline-flex; align-items: center; padding: 0 8px; }
 @media (max-width: 480px) { h1 { font-size: 1.5rem; } .card { padding: 16px 14px 4px; } }
+
+/* long link text must wrap at 375px */
+.wrap { overflow-wrap: anywhere; }

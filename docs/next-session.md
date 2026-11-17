@@ -20,6 +20,7 @@ v1 verified in demo mode; all checks green on Node 24. Only do what the owner as
 - Live Google has never been tested.
 
 - Brand: draggable Vin's Atelier logo in the credits sign-off (`web/src/brand/`, `BrandLogo.tsx`); radios in Settings; pre-paint via external `web/public/logo-init.js`; spec `e2e/logo.spec.ts`.
+- Fixed 2026-11-17: foreground `loadAll` refetches when a local write landed mid-fetch (boot race lost quick-add/offline-create items). Visual-check 375/1280 dark+light: axe clean on login, app, privacy; credits sign-off OK.
 
 ## Known gaps / ideas
 1. Live Google OAuth and Calendar sync untested against the real API.

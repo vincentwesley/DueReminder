@@ -20,3 +20,5 @@ review-shots/
 graphify-out/
 .claude/settings.local.json
 CLAUDE.md
+
+qa-output/
