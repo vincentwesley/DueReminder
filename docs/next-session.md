@@ -34,3 +34,4 @@ v1 verified in demo mode; all checks green on Node 24. Only do what the owner as
 - 2026-11-17: logo spec waits for the --logo-x transition before measuring (15s polls).
 - 2026-11-17: re-copied kit tokens.css per UPGRADING.md (credits.css still older kit; needs markup change). Known: e2e/a11y.spec.ts fails label-content-name-mismatch on .account (aria-label vs visible name), predates the re-copy.
 - 2026-11-18: fixed label-content-name-mismatch (account chip name = visible name, avatar initial via CSS; More button label starts with "More"); a11y spec green.
+- 2026-11-18: credits.css re-copied; firefly inline styles removed from Credits.tsx (UPGRADING step 6).
