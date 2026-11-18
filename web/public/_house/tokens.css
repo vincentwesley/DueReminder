@@ -9,6 +9,22 @@
   --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-label: "Silkscreen", ui-monospace, monospace; /* pixel accent: eyebrows, badges, chips, "Made by" only */
   --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  /* Canonical scales: --s1..--s6 and --step--1..--step-4 only (scripts/lint-tokens.mjs enforces it). Do not add duplicates.
+     Mapping for projects that grew their own names (e.g. social-hub: --s-N px scale, --t-* type scale):
+       --s-1 8px -> --s2     --s-2 16px -> --s4     --s-3 24px -> --s5     --s-4 40px -> calc(var(--s6) + var(--s2))   --s-5 64px -> calc(var(--s6) * 2)
+       --t-sm 0.8rem -> --step--1   --t-0 -> --step-0   --t-1 1.25rem -> --step-1   --t-2 1.563rem -> --step-2   --t-hero -> --step-4
+     Projects may keep a local alias block (--s-2: var(--s4);) but never redefine the canonical names. */
+  --s1: 0.25rem; --s2: 0.5rem; --s3: 0.75rem; --s4: 1rem; --s5: 1.5rem; --s6: 2rem;
+  --step--1: clamp(0.8rem, 0.78rem + 0.1vw, 0.875rem);
+  --step-0: 1rem;
+  --step-1: clamp(1.125rem, 1.07rem + 0.27vw, 1.3rem);
+  --step-2: clamp(1.3rem, 1.18rem + 0.6vw, 1.65rem);
+  --step-3: clamp(1.6rem, 1.35rem + 1.2vw, 2.25rem);
+  --step-4: clamp(2rem, 1.5rem + 2.4vw, 3.25rem);
+  --dur-fast: 120ms; --dur-open: 240ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --content-w: 68rem; --header-h: 3.5rem;
+  --z-nav: 10; --z-dialog: 50; --z-toast: 60;
 }
 
 /* Dark is the default (also without JS). */
@@ -19,14 +35,24 @@
   --bg-elev: #1a2015;
   --fg: #e9f0df;
   --fg-muted: #aebb9f;
-  --border: #2f3a26;
-  --border-strong: #6f8560;
+  --border: #66795a;
+  --border-soft: #2f3a26;
+  --border-strong: #8aa07a;
   --accent: #4fe0a0;
   --accent-fg: #04140b;
   --focus: #7db4ff;
   --fx-1: #22eaa0;
+  --fx-2: #e9a07f; /* peach */
+  --fx-3: #a996e0; /* lavender */
   --firefly: #9dff6a;
   --firefly-core: #eaffb0;
+  --ok: #4fd16f; --ok-fg: #04140b;
+  --warn: #f0c04a; --warn-fg: #1c1400;
+  --danger: #ff8078; --danger-fg: #1f0504;
+  --series-1: var(--accent); --series-2: var(--fx-2); --series-3: var(--fx-3);
+  --series-4: #6fb7ff; --series-5: #f0d060; --series-6: #ff7fa6;
+  /* inventory-slot rarity (3:1 vs --bg, checked by scripts/contrast.mjs) */
+  --rarity-common: #9aaa8c; --rarity-rare: #6fb7ff; --rarity-epic: #a996e0; --rarity-legendary: #f0c04a;
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -34,26 +60,46 @@
   --bg-elev: #fbfefc;
   --fg: #10251a;
   --fg-muted: #3b5747;
-  --border: #c2dbcb;
-  --border-strong: #4f7d63;
+  --border: #6a957d;
+  --border-soft: #c2dbcb;
+  --border-strong: #3f6b52;
   --accent: #14673a;
   --accent-fg: #ffffff;
   --focus: #1f5fbf;
-  --fx-1: #10b87c;
-  --firefly: #1f9d55;
-  --firefly-core: #6be39a;
+  --fx-1: #0a7a54;
+  --fx-2: #b4532a; /* peach, darkened */
+  --fx-3: #6b55b8; /* lavender, darkened */
+  --firefly: #1a7f46;
+  --firefly-core: #1f8a4f;
+  --ok: #1c7a3f; --ok-fg: #ffffff;
+  --warn: #8a5a00; --warn-fg: #ffffff;
+  --danger: #b3261e; --danger-fg: #ffffff;
+  --series-4: #1f5fbf; --series-5: #8a6a00; --series-6: #b3365e;
+  --rarity-common: #3f6b52; --rarity-rare: #1f5fbf; --rarity-epic: #6b55b8; --rarity-legendary: #8a5a00;
 }
+/* Optional day/night (js/daynight.js sets data-daypart on <html>; opt-in, dark theme only). Only the decorative accents
+   shift a few degrees; --accent, text and border tokens never change, so contrast is untouched. "day" = the defaults. */
+:root[data-daypart="dawn"]:not([data-theme="light"]) { --fx-2: #f2a1a0; --firefly: #ffd27a; }
+:root[data-daypart="dusk"]:not([data-theme="light"]) { --fx-2: #f5a05a; --firefly: #ffb86b; }
+:root[data-daypart="night"]:not([data-theme="light"]) { --fx-2: #b9a8f0; --firefly: #8fd8ff; }
 :root {
-  --fx-2: #e9a07f; /* peach */
-  --fx-3: #a996e0; /* lavender */
   --fx-ease: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-spring: var(--fx-ease);
   --fx-step: steps(4, end);
   --pix: 0 -2px var(--border-strong), 0 2px var(--border-strong), -2px 0 var(--border-strong), 2px 0 var(--border-strong);
   --fx-card-shadow: 0 -2px var(--accent), 0 2px var(--accent), -2px 0 var(--accent), 2px 0 var(--accent), 4px 4px 0 0 var(--fx-2);
   --fx-btn-shadow: 3px 3px 0 0 var(--fx-2);
 }
 
+@supports (transition-timing-function: linear(0, 1)) {
+  :root { --ease-spring: linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017, 1.077, 1.121, 1.149 24.3%, 1.159, 1.163, 1.161, 1.154 29.9%, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%, 0.991, 0.977 51%, 0.974 53.8%, 0.975 57.1%, 0.997 69.8%, 1.003 76.9%, 1); }
+}
+
 /* ---- helpers ---- */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+h1, h2, h3 { text-wrap: balance; }
+p { text-wrap: pretty; }
+img.pixelated, .hs-pixel { image-rendering: pixelated; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 4px 4px 0 0 var(--focus); }
 
 .hs-card {
@@ -91,7 +137,7 @@
   color: var(--fg); background: var(--bg-elev);
   border: 0; border-radius: 0; box-shadow: var(--pix);
 }
-a.hs-chip, button.hs-chip { cursor: pointer; text-decoration: none; }
+a.hs-chip, button.hs-chip { cursor: pointer; text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
 a.hs-chip:hover, button.hs-chip:hover { color: var(--accent); }
 
 .hs-eyebrow {
