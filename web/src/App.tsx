@@ -48,8 +48,8 @@ function AccountChip() {
   if (!user) return null;
   return (
     <div className="menu-wrap" ref={ref}>
-      <button type="button" className="account" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid="account-chip" aria-label={`Account: ${user.name}`}>
-        {user.pictureUrl ? <img src={user.pictureUrl} alt="" width={28} height={28} referrerPolicy="no-referrer" /> : <span className="avatar" aria-hidden="true">{(user.name || user.email).charAt(0).toUpperCase()}</span>}
+      <button type="button" className="account" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid="account-chip" aria-label={user.name}>
+        {user.pictureUrl ? <img src={user.pictureUrl} alt="" width={28} height={28} referrerPolicy="no-referrer" /> : <span className="avatar" aria-hidden="true" data-initial={(user.name || user.email).charAt(0).toUpperCase()} />}
         <span className="account-name">{user.name}</span>
       </button>
       {open && (

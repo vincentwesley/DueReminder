@@ -77,7 +77,7 @@ export function BottomNav({ route, onMenu }: { route: Route; onMenu: () => void 
           {v !== 'done' && c[v] > 0 && <span className="badge">{c[v]}</span>}
         </a>
       ))}
-      <button type="button" onClick={onMenu} data-testid="open-drawer" aria-label="Open lists and tags"><Icon name="menu" size={20} /><span>More</span></button>
+      <button type="button" onClick={onMenu} data-testid="open-drawer" aria-label="More: open lists and tags"><Icon name="menu" size={20} /><span>More</span></button>
     </nav>
   );
 }

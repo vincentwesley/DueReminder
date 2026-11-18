@@ -81,6 +81,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
 .account { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--surface); border-radius: 0; padding: 3px 12px 3px 3px; }
 .account img, .avatar { width: 28px; height: 28px; border-radius: 0; object-fit: cover; }
 .avatar { display: grid; place-items: center; background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 0.85rem; }
+.avatar::before { content: attr(data-initial); }
 .account-name { display: none; font-size: 0.9rem; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Buttons */
