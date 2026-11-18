@@ -31,3 +31,4 @@ v1 verified in demo mode; all checks green on Node 24. Only do what the owner as
 6. CSP inline-script hashing runs at request time (memoised per ETag); move to build time.
 7. N+1 queries in sync pull (sync.ts applyRemoteEvent loop, pull page fetch).
 8. enqueueSync issues 5 sequential statements; batch them.
+- 2026-11-17: logo spec waits for the --logo-x transition before measuring (15s polls).
